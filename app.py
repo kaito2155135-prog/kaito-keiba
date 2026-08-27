@@ -5,17 +5,12 @@ import joblib
 import datetime
 import os
 import re
+import urllib.request
+from bs4 import BeautifulSoup
 from sklearn.preprocessing import LabelEncoder
 
-from PIL import Image
-try:
-    import pytesseract
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
-
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("JRA-VAN出馬表の画像から、DM・馬体重・母名などの不要な情報を完全に除外して自動抽出する最新版！✨🔥")
+st.write("netkeibaのURLを貼り付けるだけで、全頭のデータを自動一括取得する最新版！✨🔥")
 
 @st.cache_resource
 def load_model():
@@ -110,7 +105,7 @@ if len(dfs) > 0:
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果をマスターに追加", "🧠 ガチAIの再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（不要情報自動カット版）")
+    st.subheader("🚀 勝ち馬のガチ予測（netkeiba URL自動取得版）")
    
     if len(df_m_auto) > 10:
         st.success(f"📂 マスターデータ読み込み成功！（総データ数: {len(df_m_auto):,}行✨）")
@@ -129,107 +124,117 @@ with tab1:
 
     st.markdown("---")
 
-    with st.expander("📸 JRA-VAN出馬表の画像をアップロードして自動入力", expanded=True):
-        st.markdown("タイムDM、対戦DM、予想印、馬体重などを自動で無視し、必要な項目だけを抽出します！")
+    with st.expander("🌐 netkeibaの出馬表URLから自動取得", expanded=True):
+        st.markdown("netkeibaの対象レース出馬表URLをここに貼り付けてな！")
        
-        uploaded_file = st.file_uploader("出馬表の画像をアップロード (PNG/JPG)", type=["png", "jpg", "jpeg"], key="img_uploader_v3")
+        # サンプルとして直近のnetkeibaレースURLの形をプレースホルダーや初期値に提示
+        netkeiba_url_input = st.text_input(
+            "netkeiba 出馬表URL",
+            value="https://race.netkeiba.com/race/shutuba.html?race_id=202605010111",
+            placeholder="https://race.netkeiba.com/race/shutuba.html?race_id=..."
+        )
        
-        if uploaded_file is not None:
-            img = Image.open(uploaded_file)
-            st.image(img, caption="アップロードされた出馬表", use_container_width=True)
-           
-            if OCR_AVAILABLE:
-                if st.button("✨ 画像から必要なデータだけを高精度で抽出する！"):
-                    with st.spinner("不要な情報を省いて解析中やで..."):
-                        try:
-                            full_text = pytesseract.image_to_string(img, lang='jpn+eng')
-                            lines = [line.strip() for line in full_text.split('\n') if line.strip()]
+        if st.button("✨ URLから全頭データを自動取得する！"):
+            if netkeiba_url_input.strip():
+                try:
+                    req = urllib.request.Request(
+                        netkeiba_url_input,
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                    )
+                    with urllib.request.urlopen(req) as response:
+                        html = response.read().decode('euc-jp', errors='ignore')
+                   
+                    soup = BeautifulSoup(html, 'html.parser')
+                    parsed_horses = []
+                   
+                    # netkeibaの出馬表テーブル行を走査
+                    tr_list = soup.select('tr.HorseList') or soup.find_all('tr', class_=re.compile('HorseList'))
+                   
+                    if not tr_list:
+                        # 別の構造に対応
+                        tr_list = soup.select('.ShutubaTable tr')
+
+                    for tr in tr_list:
+                        h_data = {}
+                       
+                        # 馬番
+                        umaban_el = tr.select_T('.Umaban, .Num') if hasattr(tr, 'select_T') else tr.select('.Umaban')
+                        if not umaban_el:
+                            umaban_el = tr.find(class_=re.compile('Umaban|num'))
+                       
+                        # テキストベースで手堅く探す
+                        text_all = tr.get_text()
+                       
+                        # 馬番の抽出 (1〜18)
+                        m_umaban = re.search(r'\b([1-9]|1[0-8])\b', tr.get_text())
+                       
+                        # 馬名の抽出（tr内の<a>タグで特定のクラスや、カタカナを探す）
+                        a_tags = tr.find_all('a', href=re.compile('horse'))
+                        horse_name = ""
+                        for a in a_tags:
+                            candidate = a.get_text().strip()
+                            if re.search(r'^[ァ-ンー]+$', candidate):
+                                horse_name = candidate
+                                break
+                       
+                        if not horse_name:
+                            # ざっくりカタカナを探す
+                            m_name = re.search(r'([ァ-ンー]{2,})', text_all)
+                            if m_name:
+                                horse_name = m_name.group(1)
+
+                        # 枠番・馬番・オッズ・人気などの簡易パース
+                        m_pop = re.search(r'([1-9][0-9]*)人気', text_all)
+                        m_odds = re.search(r'([0-9]+\.[0-9])', text_all)
+                        m_sex_age = re.search(r'([牡牝騸セ])([2-9])', text_all)
+                        m_wt = re.search(r'(5[0-9]\.[0-9])', text_all)
+                       
+                        # 簡易的に行から各要素を拾う
+                        if horse_name:
+                            h_data['name'] = horse_name
                            
-                            parsed_horses = []
-                            current_h = {}
-                           
-                            i = 0
-                            while i < len(lines):
-                                line = lines[i]
+                            # 馬番推定（行の最初の方にある数字）
+                            nums = re.findall(r'\b([1-9]|1[0-8])\b', text_all)
+                            if nums:
+                                u_num = int(nums[0])
+                                h_data['umaban'] = u_num
+                                h_data['waku'] = ((u_num - 1) // 2) + 1
                                
-                                # 馬番の検知
-                                m_num = re.match(r'^([1-9]|1[0-8])\b', line)
-                                if m_num:
-                                    if current_h and 'name' in current_h:
-                                        parsed_horses.append(current_h)
-                                    current_h = {}
-                                    u_num = int(m_num.group(1))
-                                    current_h['umaban'] = u_num
-                                    current_h['waku'] = ((u_num - 1) // 2) + 1
-                                    i += 1
-                                    continue
-                                   
-                                if not current_h:
-                                    i += 1
-                                    continue
-                                   
-                                # 人気
-                                pop_m = re.search(r'([1-9][0-9]*)人気', line)
-                                if pop_m and 'popularity' not in current_h:
-                                    current_h['popularity'] = int(pop_m.group(1))
-                                   
-                                # オッズ
-                                odds_m = re.search(r'([0-9]+\.[0-9])', line)
-                                if odds_m and ('倍' in line or '.' in line) and 'odds' not in current_h:
-                                    try:
-                                        val = float(odds_m.group(1))
-                                        if val < 1000:
-                                            current_h['odds'] = val
-                                    except:
-                                        pass
-                                       
-                                # 馬名（母や括弧、DM関連を除外）
-                                if 'name' not in current_h and not line.startswith('父') and not line.startswith('母') and '(' not in line:
-                                    if re.search(r'^[ァ-ンー]+$', line) and len(line) >= 2:
-                                        current_h['name'] = line
-                                       
-                                # 父馬名
-                                if line.startswith('父'):
-                                    sire_name = line.replace('父', '').strip()
-                                    if not sire_name and i + 1 < len(lines):
-                                        sire_name = lines[i+1].strip()
-                                    sire_name = re.sub(r'[\(（].*?[\)）]', '', sire_name).strip()
-                                    if sire_name and not sire_name.startswith('母'):
-                                        current_h['sire'] = sire_name
-                                   
-                                # 性別・年齢
-                                sex_m = re.search(r'([牡牝騸セ])([2-9])', line)
-                                if sex_m and 'sex' not in current_h:
-                                    s_val = sex_m.group(1)
-                                    if s_val == 'セ': s_val = '騸'
-                                    current_h['sex'] = s_val
-                                    current_h['age'] = int(sex_m.group(2))
-                                   
-                                # 斤量
-                                weight_m = re.search(r'(5[0-9]\.[0-9])', line)
-                                if weight_m and 'weight' not in current_h:
-                                    current_h['weight'] = float(weight_m.group(1))
-                                   
-                                # 騎手
-                                jock_list = ['川田将雅', 'ルメール', '武豊', '戸崎圭太', '岩田望来', '北村友一', '池添謙一', '松山弘平', '藤懸貴志', '吉村誠之', '津村明秀', 'レーン', '松本大輝', '松若風馬', '鮫島克駿']
-                                for j_name in jock_list:
-                                    if j_name in line and 'jockey' not in current_h:
-                                        current_h['jockey'] = j_name
-                                       
-                                i += 1
+                            if m_pop:
+                                h_data['popularity'] = int(m_pop.group(1))
+                            if m_odds:
+                                try:
+                                    val = float(m_odds.group(1))
+                                    if val < 1000:
+                                        h_data['odds'] = val
+                                except:
+                                    pass
+                            if m_sex_age:
+                                s = m_sex_age.group(1)
+                                if s == 'セ': s = '騸'
+                                h_data['sex'] = s
+                                h_data['age'] = int(m_sex_age.group(2))
+                            if m_wt:
+                                h_data['weight'] = float(m_wt.group(1))
                                
-                            if current_h and 'name' in current_h:
-                                parsed_horses.append(current_h)
-                               
-                            if parsed_horses:
-                                st.session_state['parsed_horses'] = parsed_horses
-                                st.success(f"✨ 不要情報をカットして {len(parsed_horses)}頭分のデータを抽出しました！")
-                            else:
-                                st.warning("⚠️ うまく抽出できませんでした。")
-                        except Exception as e:
-                            st.error(f"⚠️ 解析エラー: {e}")
+                            # 騎手名
+                            jock_list = ['川田将雅', 'ルメール', '武豊', '戸崎圭太', '岩田望来', '北村友一', '池添謙一', '松山弘平', '藤懸貴志', '吉村誠之', '津村明秀', 'レーン', '松本大輝', '松若風馬', '鮫島克駿']
+                            for j in jock_list:
+                                if j in text_all:
+                                    h_data['jockey'] = j
+                                    break
+                                   
+                            parsed_horses.append(h_data)
+
+                    if parsed_horses:
+                        st.session_state['parsed_horses'] = parsed_horses
+                        st.success(f"✨ URLから {len(parsed_horses)}頭分のデータを自動取得しました！")
+                    else:
+                        st.warning("⚠️ 該当ページからデータを抽出できませんでした。URLが正しいか確認してください。")
+                except Exception as e:
+                    st.error(f"⚠️ 取得エラー: {e}")
             else:
-                st.warning("⚠️ pytesseract が利用できない環境です。")
+                st.warning("⚠️ URLを入力してください。")
 
     parsed_data_list = st.session_state.get('parsed_horses', [])
     default_num = max(len(parsed_data_list), 8)
