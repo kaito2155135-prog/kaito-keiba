@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from sklearn.preprocessing import LabelEncoder
 
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("netkeibaのURLを貼り付けるだけで、全頭のデータを自動一括取得する最新版！✨🔥")
+st.write("netkeibaのURL（スマホ版・PC版両対応）からデータを自動一括取得する最新版！✨🔥")
 
 @st.cache_resource
 def load_model():
@@ -118,27 +118,32 @@ with tab1:
         p_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="p_place")
     with col_p2:
         p_track = st.selectbox("トラック", ["芝", "ダート", "障害"], key="p_track")
-        p_distance = st.number_input("距離 (m)", value=1600, step=100, key="p_distance")
+        p_distance = st.number_input("距離 (m)", value=3200, step=100, key="p_distance") # 天皇賞春は3200m
     with col_p3:
         p_condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="p_condition")
 
     st.markdown("---")
 
     with st.expander("🌐 netkeibaの出馬表URLから自動取得", expanded=True):
-        st.markdown("netkeibaの対象レース出馬表URLをここに貼り付けてな！")
+        st.markdown("netkeibaの対象レース出馬表URLをここに貼り付けてな！（スマホ版・PC版どちらもOK）")
        
         netkeiba_url_input = st.text_input(
             "netkeiba 出馬表URL",
-            value="https://race.sp.netkeiba.com/race/shutuba.html?race_id=202608030411",
-            placeholder="https://race.sp.netkeiba.com/race/shutuba.html?race_id=..."
+            value="https://race.netkeiba.com/race/shutuba.html?race_id=202608030411",
+            placeholder="https://race.netkeiba.com/race/shutuba.html?race_id=..."
         )
        
         if st.button("✨ URLから全頭データを自動取得する！"):
             if netkeiba_url_input.strip():
                 try:
+                    # スマホ版URLが入力された場合は自動でPC版のURLに変換して取得を試みる（構造が安定するため）
+                    target_url = netkeiba_url_input
+                    if "race.sp.netkeiba.com" in target_url:
+                        target_url = target_url.replace("race.sp.netkeiba.com", "race.netkeiba.com")
+
                     req = urllib.request.Request(
-                        netkeiba_url_input,
-                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                        target_url,
+                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
                     )
                     with urllib.request.urlopen(req) as response:
                         html = response.read().decode('euc-jp', errors='ignore')
@@ -146,7 +151,8 @@ with tab1:
                     soup = BeautifulSoup(html, 'html.parser')
                     parsed_horses = []
                    
-                    tr_list = soup.select('tr.HorseList') or soup.find_all('tr', class_=re.compile('HorseList'))
+                    # 多様なテーブル構造に対応
+                    tr_list = soup.select('tr.HorseList')
                     if not tr_list:
                         tr_list = soup.select('.ShutubaTable tr')
                     if not tr_list:
@@ -156,6 +162,7 @@ with tab1:
                         h_data = {}
                         text_all = tr.get_text()
                        
+                        # 馬名（<a>タグのリンクテキストでカタカナのもの）
                         a_tags = tr.find_all('a', href=re.compile('horse'))
                         horse_name = ""
                         for a in a_tags:
@@ -174,7 +181,7 @@ with tab1:
                         m_sex_age = re.search(r'([牡牝騸セ])([2-9])', text_all)
                         m_wt = re.search(r'(5[0-9]\.[0-9])', text_all)
                        
-                        if horse_name:
+                        if horse_name and horse_name != "netkeiba":
                             h_data['name'] = horse_name
                            
                             nums = re.findall(r'\b([1-9]|1[0-8])\b', text_all)
@@ -200,19 +207,21 @@ with tab1:
                             if m_wt:
                                 h_data['weight'] = float(m_wt.group(1))
                                
-                            jock_list = ['川田将雅', 'ルメール', '武豊', '戸崎圭太', '岩田望来', '北村友一', '池添謙一', '松山弘平', '藤懸貴志', '吉村誠之', '津村明秀', 'レーン', '松本大輝', '松若風馬', '鮫島克駿']
+                            jock_list = ['川田将雅', 'ルメール', '武豊', '戸崎圭太', '岩田望来', '北村友一', '池添謙一', '松山弘平', '藤懸貴志', '吉村誠之', '津村明秀', 'レーン', '松本大輝', '松若風馬', '鮫島克駿', '横山武史', '横山和生', '坂井瑠星', '西村淳也']
                             for j in jock_list:
                                 if j in text_all:
                                     h_data['jockey'] = j
                                     break
                                    
-                            parsed_horses.append(h_data)
+                            # 重複追加を防ぐ
+                            if not any(h.get('name') == horse_name for h in parsed_horses):
+                                parsed_horses.append(h_data)
 
                     if parsed_horses:
                         st.session_state['parsed_horses'] = parsed_horses
                         st.success(f"✨ URLから {len(parsed_horses)}頭分のデータを自動取得しました！")
                     else:
-                        st.warning("⚠️ 該当ページからデータを抽出できませんでした。URLが正しいか確認してください。")
+                        st.warning("⚠️ 該当ページからデータを抽出できませんでした。通常のPC版URL（https://race.netkeiba.com/...）を試してみてください。")
                 except Exception as e:
                     st.error(f"⚠️ 取得エラー: {e}")
             else:
@@ -237,8 +246,8 @@ with tab1:
 
         def_name = ""
         def_sex = "牡"
-        def_age = 3
-        def_weight = 56.0
+        def_age = 4
+        def_weight = 58.0
         def_jockey = ""
         def_sire = ""
         def_odds = 0.0
@@ -251,8 +260,8 @@ with tab1:
                 auto_waku = h_info.get('waku', auto_waku)
                 def_name = h_info.get('name', '')
                 def_sex = h_info.get('sex', '牡')
-                def_age = h_info.get('age', 3)
-                def_weight = h_info.get('weight', 56.0)
+                def_age = h_info.get('age', 4)
+                def_weight = h_info.get('weight', 58.0)
                 def_sire = h_info.get('sire', '')
                 def_odds = h_info.get('odds', 0.0)
                 def_pop = h_info.get('popularity', 0)
@@ -340,18 +349,18 @@ with tab2:
     st.subheader("📝 レース結果をマスターに追加する")
     col_r1, col_r2, col_r3 = st.columns(3)
     with col_r1:
-        race_date = st.date_input("開催日", datetime.date(2026, 6, 1))
-        race_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="r_place")
+        race_date = st.date_input("開催日", datetime.date(2026, 5, 3))
+        race_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], index=2, key="r_place")
         race_number = st.number_input("レース番号 (R)", min_value=1, max_value=12, value=11, key="r_num")
     with col_r2:
-        race_name = st.text_input("レース名", "", placeholder="例: 日本ダービー", key="r_name_input")
+        race_name = st.text_input("レース名", "天皇賞（春）", key="r_name_input")
         track_type = st.selectbox("トラック", ["芝", "ダート", "障害"], key="r_track")
-        distance = st.number_input("距離 (m)", value=1600, step=100, key="r_distance")
+        distance = st.number_input("距離 (m)", value=3200, step=100, key="r_distance")
     with col_r3:
         condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="r_cond")
         weather = st.selectbox("天気", ["晴", "曇", "雨", "小雨", "雪"], key="r_weather")
 
-    res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=8, key="res_num")
+    res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=15, key="res_num")
 
     new_data_list = []
     for i in range(res_num_horses):
@@ -364,14 +373,14 @@ with tab2:
             with col_a:
                 r_name = st.text_input(f"馬名", "", key=f"r_name_{i}")
                 r_sex = st.selectbox(f"性別", ["牡", "牝", "騸"], key=f"r_sex_{i}")
-                r_age = st.number_input(f"年齢", min_value=2, max_value=15, value=3, key=f"r_age_{i}")
+                r_age = st.number_input(f"年齢", min_value=2, max_value=15, value=4, key=f"r_age_{i}")
                 r_jockey = st.text_input(f"騎手名", "", key=f"r_jockey_{i}")
                 r_trainer = st.text_input(f"調教師名", "", key=f"r_trainer_{i}")
                 r_stable = st.selectbox(f"所属", ["美浦", "栗東", "地方", "海外"], key=f"r_stable_{i}")
             with col_b:
                 r_sire = st.text_input(f"父馬名", "", key=f"r_sire_{i}")
                 r_dam = st.text_input(f"母馬名", "", key=f"r_dam_{i}")
-                r_weight = st.number_input(f"斤量", value=56.0, step=0.5, key=f"r_weight_{i}")
+                r_weight = st.number_input(f"斤量", value=58.0, step=0.5, key=f"r_weight_{i}")
                 r_blinker_res = st.selectbox(f"ブリンカー", ["", "B"], key=f"r_blinker_{i}")
                 r_rank = st.number_input(f"確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
                 r_odds = st.number_input(f"単勝オッズ", value=0.0, min_value=0.0, step=0.1, key=f"r_odds_{i}")
@@ -393,7 +402,6 @@ with tab2:
                 'age': r_age,
                 'jockey': r_jockey if r_jockey else "不明",
                 'trainer': r_trainer if r_trainer else "不明",
-                'stable': r_stable,
                 'sire': r_sire if r_sire else "不明",
                 'dam': r_dam if r_dam else "不明",
                 'weight': r_weight,
