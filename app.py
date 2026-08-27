@@ -7,7 +7,6 @@ import os
 import re
 from sklearn.preprocessing import LabelEncoder
 
-# 画像解析用のインポート
 from PIL import Image
 try:
     import pytesseract
@@ -16,7 +15,7 @@ except ImportError:
     OCR_AVAILABLE = False
 
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("JRA-VAN出馬表画像からの完全自動・高精度パーツ抽出対応版！✨🔥")
+st.write("JRA-VAN出馬表の画像から、DM・馬体重・母名などの不要な情報を完全に除外して自動抽出する最新版！✨🔥")
 
 @st.cache_resource
 def load_model():
@@ -27,7 +26,7 @@ def load_model():
 
 model = load_model()
 
-# --- 共通：大容量データの確実読込＆重複のない列名自動マッピング ---
+# --- マスターデータの読み込みとカラム自動マッピング ---
 jockey_win_rates = {}
 df_m_auto = pd.DataFrame()
 dfs = []
@@ -108,11 +107,10 @@ if len(dfs) > 0:
             if row['total'] > 0:
                 jockey_win_rates[jock] = row['wins'] / row['total']
 
-# タブで機能を分ける
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果をマスターに追加", "🧠 ガチAIの再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（JRA-VAN画像完全対応版）")
+    st.subheader("🚀 勝ち馬のガチ予測（不要情報自動カット版）")
    
     if len(df_m_auto) > 10:
         st.success(f"📂 マスターデータ読み込み成功！（総データ数: {len(df_m_auto):,}行✨）")
@@ -131,36 +129,30 @@ with tab1:
 
     st.markdown("---")
 
-    # --- 📸 JRA-VAN出馬表画像からの超高精度自動抽出機能 ---
-    with st.expander("📸 【超便利】JRA-VAN出馬表の画像をアップロードして自動入力", expanded=True):
-        st.markdown("さっきのようなJRA-VANの出馬表画像をアップロードしてください。AIが馬番・人気・オッズ・馬名・性齢・斤量・騎手・父馬名を正確に切り分けて一発入力します！✨")
+    with st.expander("📸 JRA-VAN出馬表の画像をアップロードして自動入力", expanded=True):
+        st.markdown("タイムDM、対戦DM、予想印、馬体重などを自動で無視し、必要な項目だけを抽出します！")
        
-        uploaded_file = st.file_uploader("出馬表の画像をアップロード (PNG/JPG)", type=["png", "jpg", "jpeg"], key="img_uploader_v2")
+        uploaded_file = st.file_uploader("出馬表の画像をアップロード (PNG/JPG)", type=["png", "jpg", "jpeg"], key="img_uploader_v3")
        
         if uploaded_file is not None:
             img = Image.open(uploaded_file)
             st.image(img, caption="アップロードされた出馬表", use_container_width=True)
            
             if OCR_AVAILABLE:
-                if st.button("✨ 画像から全馬データを自動解析する！"):
-                    with st.spinner("画像を解析して各項目を抽出中やで..."):
+                if st.button("✨ 画像から必要なデータだけを高精度で抽出する！"):
+                    with st.spinner("不要な情報を省いて解析中やで..."):
                         try:
-                            # 画像全体をOCR
                             full_text = pytesseract.image_to_string(img, lang='jpn+eng')
                             lines = [line.strip() for line in full_text.split('\n') if line.strip()]
                            
                             parsed_horses = []
-                           
-                            # 馬名リストやキーワードをベースに強力なブロック分割を行う
-                            # JRA-VAN画像特有の文字列からデータを構築
                             current_h = {}
                            
-                            # 全テキストを走査して構造化する高度なロジック
                             i = 0
                             while i < len(lines):
                                 line = lines[i]
                                
-                                # 馬番の検知（行頭の数字 1〜18）
+                                # 馬番の検知
                                 m_num = re.match(r'^([1-9]|1[0-8])\b', line)
                                 if m_num:
                                     if current_h and 'name' in current_h:
@@ -176,12 +168,12 @@ with tab1:
                                     i += 1
                                     continue
                                    
-                                # 人気の抽出
+                                # 人気
                                 pop_m = re.search(r'([1-9][0-9]*)人気', line)
                                 if pop_m and 'popularity' not in current_h:
                                     current_h['popularity'] = int(pop_m.group(1))
                                    
-                                # オッズの抽出
+                                # オッズ
                                 odds_m = re.search(r'([0-9]+\.[0-9])', line)
                                 if odds_m and ('倍' in line or '.' in line) and 'odds' not in current_h:
                                     try:
@@ -191,19 +183,21 @@ with tab1:
                                     except:
                                         pass
                                        
-                                # 馬名の抽出（カタカナのみで2文字以上、父・母ではない）
-                                if 'name' not in current_h and not line.startswith('父') and not line.startswith('母') and '人気' not in line:
+                                # 馬名（母や括弧、DM関連を除外）
+                                if 'name' not in current_h and not line.startswith('父') and not line.startswith('母') and '(' not in line:
                                     if re.search(r'^[ァ-ンー]+$', line) and len(line) >= 2:
                                         current_h['name'] = line
                                        
-                                # 父馬名の抽出
+                                # 父馬名
                                 if line.startswith('父'):
                                     sire_name = line.replace('父', '').strip()
                                     if not sire_name and i + 1 < len(lines):
                                         sire_name = lines[i+1].strip()
-                                    current_h['sire'] = sire_name
+                                    sire_name = re.sub(r'[\(（].*?[\)）]', '', sire_name).strip()
+                                    if sire_name and not sire_name.startswith('母'):
+                                        current_h['sire'] = sire_name
                                    
-                                # 性別・年齢の抽出（例: 牝6, 牡5, セ8）
+                                # 性別・年齢
                                 sex_m = re.search(r'([牡牝騸セ])([2-9])', line)
                                 if sex_m and 'sex' not in current_h:
                                     s_val = sex_m.group(1)
@@ -211,12 +205,12 @@ with tab1:
                                     current_h['sex'] = s_val
                                     current_h['age'] = int(sex_m.group(2))
                                    
-                                # 斤量の抽出（例: 56.0, 58.0）
+                                # 斤量
                                 weight_m = re.search(r'(5[0-9]\.[0-9])', line)
                                 if weight_m and 'weight' not in current_h:
                                     current_h['weight'] = float(weight_m.group(1))
                                    
-                                # 騎手名の抽出
+                                # 騎手
                                 jock_list = ['川田将雅', 'ルメール', '武豊', '戸崎圭太', '岩田望来', '北村友一', '池添謙一', '松山弘平', '藤懸貴志', '吉村誠之', '津村明秀', 'レーン', '松本大輝', '松若風馬', '鮫島克駿']
                                 for j_name in jock_list:
                                     if j_name in line and 'jockey' not in current_h:
@@ -229,9 +223,9 @@ with tab1:
                                
                             if parsed_horses:
                                 st.session_state['parsed_horses'] = parsed_horses
-                                st.success(f"✨ 画像から {len(parsed_horses)}頭分のデータを完璧に抽出してフォームに反映しました！")
+                                st.success(f"✨ 不要情報をカットして {len(parsed_horses)}頭分のデータを抽出しました！")
                             else:
-                                st.warning("⚠️ うまく抽出できませんでした。下のテキストエリアに直接手入力するか、もう一度お試しください。")
+                                st.warning("⚠️ うまく抽出できませんでした。")
                         except Exception as e:
                             st.error(f"⚠️ 解析エラー: {e}")
             else:
@@ -262,7 +256,6 @@ with tab1:
         def_sire = ""
         def_odds = 0.0
         def_pop = 0
-        def_blinker = ""
 
         if i < len(parsed_data_list):
             h_info = parsed_data_list[i]
@@ -358,8 +351,6 @@ with tab1:
 
 with tab2:
     st.subheader("📝 レース結果をマスターに追加する")
-    st.write("ブリンカー情報も含めて結果を追加・蓄積するで！✨")
-
     col_r1, col_r2, col_r3 = st.columns(3)
     with col_r1:
         race_date = st.date_input("開催日", datetime.date(2026, 6, 1))
