@@ -6,3 +6,4 @@ numpy
 lightgbm
 pytesseract
 pillow
+beautifulsoup4
