@@ -127,11 +127,10 @@ with tab1:
     with st.expander("🌐 netkeibaの出馬表URLから自動取得", expanded=True):
         st.markdown("netkeibaの対象レース出馬表URLをここに貼り付けてな！")
        
-        # サンプルとして直近のnetkeibaレースURLの形をプレースホルダーや初期値に提示
         netkeiba_url_input = st.text_input(
             "netkeiba 出馬表URL",
-            value="https://race.netkeiba.com/race/shutuba.html?race_id=202605010111",
-            placeholder="https://race.netkeiba.com/race/shutuba.html?race_id=..."
+            value="https://race.sp.netkeiba.com/race/shutuba.html?race_id=202608030411",
+            placeholder="https://race.sp.netkeiba.com/race/shutuba.html?race_id=..."
         )
        
         if st.button("✨ URLから全頭データを自動取得する！"):
@@ -147,28 +146,16 @@ with tab1:
                     soup = BeautifulSoup(html, 'html.parser')
                     parsed_horses = []
                    
-                    # netkeibaの出馬表テーブル行を走査
                     tr_list = soup.select('tr.HorseList') or soup.find_all('tr', class_=re.compile('HorseList'))
-                   
                     if not tr_list:
-                        # 別の構造に対応
                         tr_list = soup.select('.ShutubaTable tr')
+                    if not tr_list:
+                        tr_list = soup.find_all('tr')
 
                     for tr in tr_list:
                         h_data = {}
-                       
-                        # 馬番
-                        umaban_el = tr.select_T('.Umaban, .Num') if hasattr(tr, 'select_T') else tr.select('.Umaban')
-                        if not umaban_el:
-                            umaban_el = tr.find(class_=re.compile('Umaban|num'))
-                       
-                        # テキストベースで手堅く探す
                         text_all = tr.get_text()
                        
-                        # 馬番の抽出 (1〜18)
-                        m_umaban = re.search(r'\b([1-9]|1[0-8])\b', tr.get_text())
-                       
-                        # 馬名の抽出（tr内の<a>タグで特定のクラスや、カタカナを探す）
                         a_tags = tr.find_all('a', href=re.compile('horse'))
                         horse_name = ""
                         for a in a_tags:
@@ -178,22 +165,18 @@ with tab1:
                                 break
                        
                         if not horse_name:
-                            # ざっくりカタカナを探す
                             m_name = re.search(r'([ァ-ンー]{2,})', text_all)
                             if m_name:
                                 horse_name = m_name.group(1)
 
-                        # 枠番・馬番・オッズ・人気などの簡易パース
                         m_pop = re.search(r'([1-9][0-9]*)人気', text_all)
                         m_odds = re.search(r'([0-9]+\.[0-9])', text_all)
                         m_sex_age = re.search(r'([牡牝騸セ])([2-9])', text_all)
                         m_wt = re.search(r'(5[0-9]\.[0-9])', text_all)
                        
-                        # 簡易的に行から各要素を拾う
                         if horse_name:
                             h_data['name'] = horse_name
                            
-                            # 馬番推定（行の最初の方にある数字）
                             nums = re.findall(r'\b([1-9]|1[0-8])\b', text_all)
                             if nums:
                                 u_num = int(nums[0])
@@ -217,7 +200,6 @@ with tab1:
                             if m_wt:
                                 h_data['weight'] = float(m_wt.group(1))
                                
-                            # 騎手名
                             jock_list = ['川田将雅', 'ルメール', '武豊', '戸崎圭太', '岩田望来', '北村友一', '池添謙一', '松山弘平', '藤懸貴志', '吉村誠之', '津村明秀', 'レーン', '松本大輝', '松若風馬', '鮫島克駿']
                             for j in jock_list:
                                 if j in text_all:
