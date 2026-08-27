@@ -7,8 +7,16 @@ import os
 import re
 from sklearn.preprocessing import LabelEncoder
 
+# 画像OCR用のインポート（入っていない場合はターミナルで pip install pytesseract pillow 等が必要）
+from PIL import Image
+try:
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+
 st.title("🐎【ガチ仕様】スマホで育てる！競馬AIマスターアプリ")
-st.write("メモリ最適化・超安定学習版！過去5年分データ合体＆ブリンカー対応や！🔥（出馬表コピペ一括読込機能付き✨）")
+st.write("メモリ最適化・超安定学習版！過去5年分データ合体＆ブリンカー対応や！🔥（画像＆コピペ一括読込機能付き✨）")
 
 @st.cache_resource
 def load_model():
@@ -123,14 +131,38 @@ with tab1:
 
     st.markdown("---")
 
-    # --- 📋 出馬表コピペ一括読込機能 ---
-    with st.expander("📋 【便利】出馬表テキストをコピペして一括自動入力する", expanded=False):
-        st.markdown("netkeibaなどの出馬表テキスト（枠番、馬番、馬名、性齢、斤量、騎手名などが含まれる表やリスト）をそのまま貼り付けてください。AIが自動で解析して各項目のフォームに反映します！")
-        raw_clipboard_text = st.text_area("ここに出馬表を貼り付け", placeholder="例:\n1 1 アーモンドアイ 牝3 55.0 ルメール\n2 2 コントレイル 牡3 57.0 福永祐一", height=150)
+    # --- 📋 出馬表コピペ ＆ 📸 画像一括読込機能 ---
+    with st.expander("📋 / 📸 【便利】出馬表の画像アップロード or テキストコピペで一括自動入力", expanded=False):
+        st.markdown("netkeibaなどの出馬表のスクリーンショット画像をアップロードするか、テキストをそのまま貼り付けてください。AIが解析して各項目のフォームに反映します！")
        
-        if st.button("📋 コピペデータを解析して反映する"):
-            if raw_clipboard_text.strip():
-                lines = raw_clipboard_text.strip().split('\n')
+        # 追加：画像アップロード機能
+        uploaded_file = st.file_uploader("出馬表の画像をアップロード (PNG/JPG)", type=["png", "jpg", "jpeg"], key="img_uploader")
+       
+        extracted_from_image = ""
+        if uploaded_file is not None:
+            img = Image.open(uploaded_file)
+            st.image(img, caption="アップロードされた出馬表画像", use_column_width=True)
+            if OCR_AVAILABLE:
+                if st.button("📸 画像の文字をAIに読み取らせる"):
+                    with st.spinner("画像から文字を解析中やで..."):
+                        try:
+                            # Tesseractによる日本語OCR読み取り
+                            extracted_from_image = pytesseract.image_to_string(img, lang='jpn+eng')
+                            st.session_state['ocr_text'] = extracted_from_image
+                            st.success("✨ 画像の文字読み取りが完了しました！下のテキストエリアに反映されたで！")
+                        except Exception as e:
+                            st.error(f"⚠️ 画像の読み取りに失敗しました: {e}")
+            else:
+                st.warning("⚠️ 画像文字読み取り機能を使うには、Python環境に pytesseract ライブラリが必要です。テキストコピペはそのまま使えます！")
+
+        # テキストエリア（画像読み取り結果か手動コピペかを保持）
+        default_text = st.session_state.get('ocr_text', '')
+        raw_clipboard_text = st.text_area("ここに出馬表テキスト（または画像読取結果）が表示・入力されます", value=default_text, placeholder="例:\n1 1 アーモンドアイ 牝3 55.0 ルメール\n2 2 コントレイル 牡3 57.0 福永祐一", height=150)
+       
+        if st.button("📋 データを解析して各馬のフォームに反映する"):
+            target_text = raw_clipboard_text if raw_clipboard_text.strip() else extracted_from_image
+            if target_text.strip():
+                lines = target_text.strip().split('\n')
                 parsed_horses = []
                 for line in lines:
                     tokens = re.split(r'[\s\t]+', line.strip())
@@ -143,7 +175,7 @@ with tab1:
                 else:
                     st.warning("⚠️ データをうまく解析できませんでした。フォーマットを確認してください。")
             else:
-                st.warning("⚠️ テキストを入力してください。")
+                st.warning("⚠️ 画像を読み込ませるか、テキストを入力してください。")
 
     st.markdown("---")
 
@@ -152,7 +184,6 @@ with tab1:
     else:
         st.success("✨ ガチAIモデル稼働中！")
 
-        # コピペデータがあればその頭数をデフォルトにする
         default_num = 8
         if 'parsed_horses' in st.session_state and len(st.session_state['parsed_horses']) > 0:
             default_num = min(len(st.session_state['parsed_horses']), 18)
@@ -375,7 +406,6 @@ with tab3:
                 target_train_df = df_m_auto.copy()
                 target_train_df = target_train_df.loc[:, ~target_train_df.columns.duplicated()]
                
-                # --- メモリ爆発を防ぐためのデータ間引き（最大5万行に制限） ---
                 if len(target_train_df) > 50000:
                     target_train_df = target_train_df.sample(n=50000, random_state=42)
                     st.info("💡 サーバーのメモリ制限を回避するため、直近の良質な5万行を抽出して学習するで！✨")
@@ -439,3 +469,4 @@ with tab3:
                 st.write(e)
     else:
         st.warning("⚠️ 十分なデータが読み込めていません。")
+
