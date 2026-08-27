@@ -16,7 +16,7 @@ except ImportError:
     OCR_AVAILABLE = False
 
 st.title("🐎【ガチ仕様】スマホで育てる！競馬AIマスターアプリ")
-st.write("メモリ最適化・超安定学習版！過去5年分データ合体＆ブリンカー対応や！🔥（JRA-VAN画像一括読込対応✨）")
+st.write("メモリ最適化・超安定学習版！過去5年分データ合体＆ブリンカー対応や！🔥（JRA-VAN画像一括読込完全対応版✨）")
 
 @st.cache_resource
 def load_model():
@@ -131,9 +131,9 @@ with tab1:
 
     st.markdown("---")
 
-    # --- 📋 出馬表コピペ ＆ 📸 画像一括読込機能（JRA-VAN対応版） ---
+    # --- 📋 出馬表コピペ ＆ 📸 画像一括読込機能（JRA-VAN強靭化パース対応） ---
     with st.expander("📋 / 📸 【便利】JRA-VAN出馬表の画像アップロード or テキストコピペ", expanded=True):
-        st.markdown("JRA-VANなどの出馬表スクリーンショットをアップロードすると、AIが馬番・人気・オッズ・馬名・騎手・性齢・父馬名を自動で抽出しやすくなります！")
+        st.markdown("JRA-VANのスクショ画像をアップロードするかテキストを貼り付けてな！AIが馬番・人気・オッズ・馬名・父名などを強引かつキレイに抽出するで✨")
        
         uploaded_file = st.file_uploader("出馬表の画像をアップロード (PNG/JPG)", type=["png", "jpg", "jpeg"], key="img_uploader")
        
@@ -163,15 +163,14 @@ with tab1:
                 parsed_horses = []
                 current_horse = {}
                
-                # JRA-VANレイアウト特有のパターンから情報を組み立て
                 for line in lines:
                     line_str = line.strip()
                     if not line_str:
                         continue
                    
-                    # 1. 馬番の検知（行の最初が1〜18の数字）
+                    # 1. 馬番の検知（1〜18の数字）
                     m_umaban = re.match(r'^([1-9]|1[0-8])\b', line_str)
-                    if m_umaban and ('人気' in line_str or '倍' in line_str or len(line_str) <= 10):
+                    if m_umaban and (len(line_str) <= 6 or '人気' in line_str or '倍' in line_str):
                         if current_horse and 'name' in current_horse:
                             parsed_horses.append(current_horse)
                         current_horse = {}
@@ -179,60 +178,62 @@ with tab1:
                         u_num = int(m_umaban.group(1))
                         current_horse['umaban'] = u_num
                         current_horse['waku'] = ((u_num - 1) // 2) + 1
-                       
-                        pop_match = re.search(r'([1-9][0-9]*)人気', line_str)
-                        if pop_match:
-                            current_horse['popularity'] = int(pop_match.group(1))
-                       
-                        odds_match = re.search(r'([0-9]+\.[0-9])倍', line_str)
-                        if odds_match:
-                            current_horse['odds'] = float(odds_match.group(1))
-                        continue
                    
                     if not current_horse:
                         continue
                        
-                    if 'popularity' not in current_horse and '人気' in line_str:
-                        pop_match = re.search(r'([1-9][0-9]*)人気', line_str)
-                        if pop_match:
-                            current_horse['popularity'] = int(pop_match.group(1))
-                    if 'odds' not in current_horse and '倍' in line_str:
-                        odds_match = re.search(r'([0-9]+\.[0-9])倍', line_str)
-                        if odds_match:
-                            current_horse['odds'] = float(odds_match.group(1))
+                    # 2. 人気の抽出
+                    pop_match = re.search(r'([1-9][0-9]*)人気', line_str)
+                    if pop_match and 'popularity' not in current_horse:
+                        current_horse['popularity'] = int(pop_match.group(1))
+                       
+                    # 3. オッズの抽出（誤読を補正）
+                    odds_match = re.search(r'([0-9]+\.[0-9])', line_str)
+                    if odds_match and ('倍' in line_str or '人気' in line_str or '.' in line_str) and len(line_str) < 10:
+                        if 'odds' not in current_horse:
+                            try:
+                                val_f = float(odds_match.group(1))
+                                if val_f < 1000:
+                                    current_horse['odds'] = val_f
+                            except:
+                                pass
 
-                    # 性別・年齢の検知
-                    sex_match = re.search(r'([牡牝騸])([2-9])', line_str)
-                    if sex_match and 'sex' not in current_horse:
-                        current_horse['sex'] = sex_match.group(1)
-                        current_horse['age'] = int(sex_match.group(2))
+                    # 4. 馬名の抽出（カタカナのみ）
+                    if 'name' not in current_horse and not line_str.startswith('父') and not line_str.startswith('母') and '人気' not in line_str:
+                        if re.search(r'^[ァ-ンー]+$', line_str) and len(line_str) >= 2:
+                            current_horse['name'] = line_str
 
-                    # 父馬名の検知
+                    # 5. 父馬名の抽出
                     if line_str.startswith('父 '):
                         current_horse['sire'] = line_str.replace('父 ', '').strip()
+                    elif line_str.startswith('父'):
+                        current_horse['sire'] = line_str.replace('父', '').strip()
 
-                    # 馬名の検知
-                    if 'name' not in current_horse and not line_str.startswith('父') and '人気' not in line_str and '倍' not in line_str:
-                        if re.search(r'[ぁ-んァ-ンー]', line_str) and len(line_str) >= 2:
-                            clean_name = re.sub(r'[0-9\.\kg\+\-\(\)\s]+', '', line_str)
-                            if len(clean_name) >= 2:
-                                current_horse['name'] = clean_name
+                    # 6. 性別・年齢の抽出
+                    sex_match = re.search(r'([牡牝騸セ])([2-9])', line_str)
+                    if sex_match and 'sex' not in current_horse:
+                        s_val = sex_match.group(1)
+                        if s_val == 'セ':
+                            s_val = '騸'
+                        current_horse['sex'] = s_val
+                        current_horse['age'] = int(sex_match.group(2))
 
-                    # 斤量・騎手情報のヒント
-                    w_match = re.search(r'([0-9]{2}\.[0-9])', line_str)
-                    if w_match and 'weight' not in current_horse:
-                        current_horse['weight'] = float(w_match.group(1))
+                    # 7. 騎手名の抽出
+                    jock_list = ['ルメール', '川田将雅', '武豊', '福永祐一', '戸崎圭太', '岩田望来', '北村友一', '池添謙一', '松山弘平', '藤懸貴志', '吉村誠之', '津村明秀', 'レーン', '松本大輝', '松若風馬']
+                    for j_name in jock_list:
+                        if j_name in line_str and 'jockey' not in current_horse:
+                            current_horse['jockey'] = j_name
 
                 if current_horse and 'name' in current_horse:
                     parsed_horses.append(current_horse)
 
                 if parsed_horses:
                     st.session_state['parsed_horses'] = parsed_horses
-                    st.success(f"✨ JRA-VANデータから {len(parsed_horses)}頭分の情報を正確に抽出しました！フォームに反映されたで！")
+                    st.success(f"✨ バラバラのOCRテキストから {len(parsed_horses)}頭分の情報を復元してフォームに反映したで！")
                 else:
-                    st.warning("⚠️ 有効な馬データを抽出できませんでした。テキストを直接修正して試してみてください。")
+                    st.warning("⚠️ データをうまく抽出できませんでした。テキストを確認してください。")
             else:
-                st.warning("⚠️ 画像を読み込ませるか、テキストを入力してください。")
+                st.warning("⚠️ テキストが空です。")
 
     st.markdown("---")
 
@@ -263,7 +264,6 @@ with tab1:
             def_pop = 0
             def_blinker = ""
 
-            # パース済みのデータがあれば各項目にセット
             if i < len(parsed_data_list):
                 h_info = parsed_data_list[i]
                 if isinstance(h_info, dict):
@@ -275,7 +275,7 @@ with tab1:
                     def_sire = h_info.get('sire', '')
                     def_odds = h_info.get('odds', 0.0)
                     def_pop = h_info.get('popularity', 0)
-                    def_weight = h_info.get('weight', 56.0)
+                    def_jockey = h_info.get('jockey', '')
 
             with st.expander(f"馬番 {auto_umaban} の予測データ", expanded=(i < 3)):
                 col1, col2 = st.columns(2)
@@ -283,7 +283,7 @@ with tab1:
                     horse_name = st.text_input(f"馬名", value=def_name, placeholder="例: アーモンドアイ", key=f"p_name_{i}")
                     r_sex = st.selectbox(f"性別", ["牡", "牝", "騸"], index=["牡", "牝", "騸"].index(def_sex) if def_sex in ["牡", "牝", "騸"] else 0, key=f"p_sex_{i}")
                     r_age = st.number_input(f"年齢", min_value=2, max_value=15, value=def_age, key=f"p_age_{i}")
-                    weight = st.number_input(f"斤量", value=def_weight, step=0.5, key=f"p_weight_{i}")
+                    weight = st.number_input(f"斤量", value=56.0, step=0.5, key=f"p_weight_{i}")
                     r_sire = st.text_input(f"父馬名（血統）", value=def_sire, placeholder="例: ディープインパクト", key=f"p_sire_{i}")
                 with col2:
                     odds = st.number_input(f"単勝オッズ", value=def_odds, min_value=0.0, step=0.1, key=f"p_odds_{i}")
