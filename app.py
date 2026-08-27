@@ -7,7 +7,8 @@ import os
 import re
 from sklearn.preprocessing import LabelEncoder
 
-st.title("🐎【ガチ仕様】スマホで育てる！競馬AIマスターアプリ（コピペ対応版）")
+st.title("🐎【ガチ仕様】スマホで育てる！競馬AIマスターアプリ")
+st.write("メモリ最適化・超安定学習版！過去5年分データ合体＆ブリンカー対応や！🔥（出馬表コピペ一括読込機能付き✨）")
 
 @st.cache_resource
 def load_model():
@@ -36,7 +37,7 @@ for f in files:
             if len(temp_df) > 10:
                 dfs.append(temp_df)
         except Exception as e:
-            pass
+            st.write(f"読み込みエラー ({f}): {e}")
 
 if len(dfs) > 0:
     df_m_auto = pd.concat(dfs, ignore_index=True)
@@ -100,14 +101,17 @@ if len(dfs) > 0:
                 jockey_win_rates[jock] = row['wins'] / row['total']
 
 # タブで機能を分ける
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 ガチ予測（コピペ対応）", "📝 結果入力", "🧠 AI再学習", "⚙️ 従来の個別入力"])
+tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果をマスターに追加", "🧠 ガチAIの再学習（アップデート）"])
 
 with tab1:
-    st.subheader("🚀 ネット競馬の出馬表コピペで一括予測！")
-    st.info("💡 ネット競馬などの出馬表をコピーして下のボックスに貼り付けるだけで、全頭の予測ができます！")
+    st.subheader("🚀 勝ち馬のガチ予測（コース・血統・ブリンカー連動）")
    
-    raw_text = st.text_area("ここに出馬表を貼り付け", height=150, placeholder="例: 1 1 コントレイル 牡3 56.0 福永祐一 1.8 ...")
-   
+    if len(df_m_auto) > 10:
+        st.success(f"📂 大容量マスターデータ読み込み成功！（総データ数: {len(df_m_auto):,}行✨）")
+    else:
+        st.warning(f"⚠️ データ数が少なすぎるで（現在 {len(df_m_auto)}行）。")
+
+    st.markdown("### 🏟️ 予想するレースの条件")
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
         p_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="p_place")
@@ -117,103 +121,233 @@ with tab1:
     with col_p3:
         p_condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="p_condition")
 
-    if st.button("🚀 貼り付けデータで一括予測を実行！"):
-        if not raw_text.strip():
-            st.warning("⚠️ テキストが入力されていません。")
-        else:
-            lines = raw_text.split("\n")
-            parsed_data = []
-           
-            for line in lines:
-                numbers = re.findall(r'\d+\.\d+|\d+', line)
-                words = re.findall(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FA5A-Za-z]+', line)
+    st.markdown("---")
+
+    # --- 📋 出馬表コピペ一括読込機能 ---
+    with st.expander("📋 【便利】出馬表テキストをコピペして一括自動入力する", expanded=False):
+        st.markdown("netkeibaなどの出馬表テキスト（枠番、馬番、馬名、性齢、斤量、騎手名などが含まれる表やリスト）をそのまま貼り付けてください。AIが自動で解析して各項目のフォームに反映します！")
+        raw_clipboard_text = st.text_area("ここに出馬表を貼り付け", placeholder="例:\n1 1 アーモンドアイ 牝3 55.0 ルメール\n2 2 コントレイル 牡3 57.0 福永祐一", height=150)
+       
+        if st.button("📋 コピペデータを解析して反映する"):
+            if raw_clipboard_text.strip():
+                lines = raw_clipboard_text.strip().split('\n')
+                parsed_horses = []
+                for line in lines:
+                    tokens = re.split(r'[\s\t]+', line.strip())
+                    if len(tokens) >= 2:
+                        parsed_horses.append(tokens)
                
-                if words:
-                    horse_name = words[0]
-                    odds = float(numbers[-1]) if numbers and '.' in numbers[-1] else 10.0
-                    wakuban = int(numbers[0]) if numbers else 1
-                    umaban = int(numbers[1]) if len(numbers) > 1 else 1
-                   
-                    jock_rate = jockey_win_rates.get("不明", 0.08)
-                   
-                    parsed_data.append({
-                        'place': p_place,
-                        'track': p_track,
-                        'distance': p_distance,
-                        'condition': p_condition,
-                        'waku': wakuban,
-                        'umaban': umaban,
-                        'name': horse_name,
-                        'sex': '牡',
-                        'age': 3,
-                        'sire': '不明',
-                        'odds': odds,
-                        'popularity': umaban,
-                        'weight': 56.0,
-                        'jockey': '不明',
-                        'jockey_win_rate': jock_rate,
-                        'blinker': 0
-                    })
-           
-            if parsed_data and model is not None:
-                df_input = pd.DataFrame(parsed_data)
-                df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if len(df_m_auto) > 0 else df_input
-                df_full = df_full.loc[:, ~df_full.columns.duplicated()]
-
-                cat_cols = ['place', 'track', 'condition', 'sire']
-                for col in cat_cols:
-                    if col in df_full.columns:
-                        le = LabelEncoder()
-                        df_full[col] = df_full[col].astype(str)
-                        df_full[col] = le.fit_transform(df_full[col])
-
-                df_input_encoded = df_full.tail(len(df_input)).copy()
-                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker']
-                X_pred = df_input_encoded[features].fillna(0)
-
-                probs = model.predict_proba(X_pred)[:, 1]
-                df_input['win_prob'] = probs * 100
-                df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
-
-                st.balloons()
-                st.subheader("🎯 一括予測ランキング結果")
-                for idx, row in df_input.iterrows():
-                    st.write(f"**第 {idx+1} 位**: 馬番 {row['umaban']} 🐴 **{row['name']}** (予測勝率: **{row['win_prob']:.2f}%** / オッズ: {row['odds']}倍)")
+                if parsed_horses:
+                    st.session_state['parsed_horses'] = parsed_horses
+                    st.success(f"✨ {len(parsed_horses)}頭分のデータを解析しました！下の各馬の設定に反映されました。")
+                else:
+                    st.warning("⚠️ データをうまく解析できませんでした。フォーマットを確認してください。")
             else:
-                st.error("⚠️ データをうまく読み込めなかったか、AIモデルがありません。")
+                st.warning("⚠️ テキストを入力してください。")
+
+    st.markdown("---")
+
+    if model is None:
+        st.error("⚠️ AIモデル（keiba_ai_model.pkl）が見つかりません。「ガチAIの再学習」タブから最初のモデルを作ってください。")
+    else:
+        st.success("✨ ガチAIモデル稼働中！")
+
+        # コピペデータがあればその頭数をデフォルトにする
+        default_num = 8
+        if 'parsed_horses' in st.session_state and len(st.session_state['parsed_horses']) > 0:
+            default_num = min(len(st.session_state['parsed_horses']), 18)
+
+        num_horses = st.slider("予測する出馬頭数", min_value=1, max_value=18, value=default_num, key="pred_num")
+       
+        input_data_list = []
+        parsed_data = st.session_state.get('parsed_horses', [])
+
+        for i in range(num_horses):
+            auto_umaban = i + 1
+            auto_waku = ((auto_umaban - 1) // 2) + 1
+            if auto_waku > 8: auto_waku = 8
+
+            def_name = ""
+            def_sex = "牡"
+            def_age = 3
+            def_weight = 56.0
+            def_jockey = ""
+            def_blinker = ""
+
+            if i < len(parsed_data):
+                tokens = parsed_data[i]
+                for t in tokens:
+                    if any(s in t for s in ['牡', '牝', '騸']):
+                        def_sex = t[0]
+                        if len(t) > 1 and t[1:].isdigit():
+                            def_age = int(t[1:])
+                    elif re.match(r'^[0-9]{2}\.[0-9]$', t):
+                        def_weight = float(t)
+                    elif t in ["B", "b"]:
+                        def_blinker = "B"
+                    elif not def_name and not re.search(r'[0-9]', t) and len(t) >= 2:
+                        def_name = t
+
+                if len(tokens) >= 3 and not def_name:
+                    def_name = tokens[2]
+
+            with st.expander(f"馬番 {auto_umaban} の予測データ", expanded=(i < 3)):
+                col1, col2 = st.columns(2)
+                with col1:
+                    horse_name = st.text_input(f"馬名", value=def_name, placeholder="例: アーモンドアイ", key=f"p_name_{i}")
+                    r_sex = st.selectbox(f"性別", ["牡", "牝", "騸"], index=["牡", "牝", "騸"].index(def_sex) if def_sex in ["牡", "牝", "騸"] else 0, key=f"p_sex_{i}")
+                    r_age = st.number_input(f"年齢", min_value=2, max_value=15, value=def_age, key=f"p_age_{i}")
+                    weight = st.number_input(f"斤量", value=def_weight, step=0.5, key=f"p_weight_{i}")
+                    r_sire = st.text_input(f"父馬名（血統）", "", placeholder="例: ディープインパクト", key=f"p_sire_{i}")
+                with col2:
+                    odds = st.number_input(f"単勝オッズ", value=0.0, min_value=0.0, step=0.1, placeholder="空欄可", key=f"p_odds_{i}")
+                    popularity = st.number_input(f"人気順", value=0, min_value=0, step=1, key=f"p_pop_{i}")
+                    r_jockey = st.text_input(f"騎手名", value=def_jockey, placeholder="例: ルメール", key=f"p_jockey_{i}")
+                    r_blinker = st.selectbox(f"ブリンカー", ["", "B"], index=["", "B"].index(def_blinker) if def_blinker in ["", "B"] else 0, key=f"p_blinker_{i}")
+               
+                jock_rate = jockey_win_rates.get(r_jockey, 0.08)
+                is_blinker = 1 if r_blinker == "B" else 0
+
+                input_data_list.append({
+                    'place': p_place,
+                    'track': p_track,
+                    'distance': p_distance,
+                    'condition': p_condition,
+                    'waku': auto_waku,
+                    'umaban': auto_umaban,
+                    'name': horse_name if horse_name else f"馬番{auto_umaban}",
+                    'sex': r_sex,
+                    'age': r_age,
+                    'sire': r_sire if r_sire else "不明",
+                    'odds': odds if odds > 0 else 10.0,
+                    'popularity': popularity if popularity > 0 else auto_umaban,
+                    'weight': weight,
+                    'jockey': r_jockey if r_jockey else "不明",
+                    'jockey_win_rate': jock_rate,
+                    'blinker': is_blinker
+                })
+
+        if st.button("🚀 ガチ予測を実行する！"):
+            df_input = pd.DataFrame(input_data_list)
+           
+            if len(df_m_auto) > 0:
+                df_full = pd.concat([df_m_auto, df_input], ignore_index=True)
+            else:
+                df_full = df_input
+
+            df_full = df_full.loc[:, ~df_full.columns.duplicated()]
+
+            cat_cols = ['place', 'track', 'condition', 'sire']
+            for col in cat_cols:
+                if col in df_full.columns:
+                    le = LabelEncoder()
+                    df_full[col] = df_full[col].astype(str)
+                    df_full[col] = le.fit_transform(df_full[col])
+
+            df_input_encoded = df_full.tail(len(df_input)).copy()
+
+            features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker']
+            X_pred = df_input_encoded[features].fillna(0)
+
+            try:
+                st.balloons()
+                st.subheader("🎯 ガチAI予測結果ランキング")
+                if hasattr(model, "predict_proba"):
+                    probs = model.predict_proba(X_pred)[:, 1]
+                    df_input['win_prob'] = probs * 100
+                    df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
+
+                    for idx, row in df_input.iterrows():
+                        b_text = " 【B着用】" if row['blinker'] == 1 else ""
+                        st.write(f"**第 {idx+1} 位**: 馬番 {row['umaban']} 🐴 **{row['name']}**{b_text} (父:{row['sire']} / 予測勝率: **{row['win_prob']:.2f}%** / オッズ: {row['odds']}倍 / 騎手: {row['jockey']})")
+                else:
+                    preds = model.predict(X_pred)
+                    df_input['pred'] = preds
+                    for idx, row in df_input.iterrows():
+                        st.write(f"馬番 {row['umaban']} 🐴 **{row['name']}** - 予測結果: {row['pred']}")
+            except Exception as e:
+                st.warning("⚠️ エラーが発生しました:")
+                st.write(e)
 
 with tab2:
     st.subheader("📝 レース結果をマスターに追加する")
-    race_date = st.date_input("開催日", datetime.date(2026, 6, 1))
-    race_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="r_place")
-    race_number = st.number_input("レース番号 (R)", min_value=1, max_value=12, value=11, key="r_num")
-    race_name = st.text_input("レース名", "", placeholder="例: 日本ダービー", key="r_name_input")
-    track_type = st.selectbox("トラック", ["芝", "ダート", "障害"], key="r_track")
-    distance = st.number_input("距離 (m)", value=1600, step=100, key="r_distance")
-    condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="r_cond")
-    weather = st.selectbox("天気", ["晴", "曇", "雨", "小雨", "雪"], key="r_weather")
+    st.write("ブリンカー情報も含めて結果を追加・蓄積するで！✨")
+
+    st.markdown("---")
+    st.markdown("### 🏟️ 今回のレース条件")
+    col_r1, col_r2, col_r3 = st.columns(3)
+    with col_r1:
+        race_date = st.date_input("開催日", datetime.date(2026, 6, 1))
+        race_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="r_place")
+        race_number = st.number_input("レース番号 (R)", min_value=1, max_value=12, value=11, key="r_num")
+    with col_r2:
+        race_name = st.text_input("レース名", "", placeholder="例: 日本ダービー", key="r_name_input")
+        track_type = st.selectbox("トラック", ["芝", "ダート", "障害"], key="r_track")
+        distance = st.number_input("距離 (m)", value=1600, step=100, key="r_distance")
+    with col_r3:
+        condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="r_cond")
+        weather = st.selectbox("天気", ["晴", "曇", "雨", "小雨", "雪"], key="r_weather")
 
     res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=8, key="res_num")
+
     new_data_list = []
     for i in range(res_num_horses):
         auto_umaban = i + 1
         auto_waku = ((auto_umaban - 1) // 2) + 1
+        if auto_waku > 8: auto_waku = 8
+
         with st.expander(f"【結果入力】馬番 {auto_umaban}", expanded=False):
-            r_name = st.text_input(f"馬名", "", key=f"r_name_{i}")
-            r_rank = st.number_input(f"確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
-            r_odds = st.number_input(f"単勝オッズ", value=1.0, min_value=0.0, step=0.1, key=f"r_odds_{i}")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                r_name = st.text_input(f"馬名", "", placeholder="例: コントレイル", key=f"r_name_{i}")
+                r_sex = st.selectbox(f"性別", ["牡", "牝", "騸"], key=f"r_sex_{i}")
+                r_age = st.number_input(f"年齢", min_value=2, max_value=15, value=3, key=f"r_age_{i}")
+                r_jockey = st.text_input(f"騎手名", "", placeholder="例: 福永祐一", key=f"r_jockey_{i}")
+                r_trainer = st.text_input(f"調教師名", "", placeholder="例: 矢作芳人", key=f"r_trainer_{i}")
+                r_stable = st.selectbox(f"所属", ["美浦", "栗東", "地方", "海外"], key=f"r_stable_{i}")
+            with col_b:
+                r_sire = st.text_input(f"父馬名（血統）", "", placeholder="例: ディープインパクト", key=f"r_sire_{i}")
+                r_dam = st.text_input(f"母馬名", "", placeholder="例: バニシングトリート", key=f"r_dam_{i}")
+                r_weight = st.number_input(f"斤量", value=56.0, step=0.5, key=f"r_weight_{i}")
+                r_blinker_res = st.selectbox(f"ブリンカー", ["", "B"], key=f"r_blinker_{i}")
+                r_rank = st.number_input(f"確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
+                r_time = st.text_input(f"走破タイム", "", placeholder="例: 2:24.1", key=f"r_time_{i}")
+                r_corner = st.text_input(f"通過順", "", placeholder="例: 3-3-2-2", key=f"r_corner_{i}")
+                r_odds = st.number_input(f"単勝オッズ", value=0.0, min_value=0.0, step=0.1, key=f"r_odds_{i}")
+                r_pop = st.number_input(f"人気順", value=0, min_value=0, step=1, key=f"r_pop_{i}")
+
             new_data_list.append({
-                'date': race_date, 'place': race_place, 'race_number': race_number, 'race_name': race_name,
-                'track': track_type, 'distance': distance, 'condition': condition, 'weather': weather,
-                'waku': auto_waku, 'umaban': auto_umaban, 'horse_name': r_name if r_name else f"馬番{auto_umaban}",
-                'sex': '牡', 'age': 3, 'jockey': '不明', 'trainer': '不明', 'stable': '栗東',
-                'sire': '不明', 'dam': '不明', 'weight': 56.0, 'blinker': '', 'rank': r_rank,
-                'time': '0:00.0', 'corner': '0', 'odds': r_odds, 'popularity': 1
+                'date': race_date,
+                'place': race_place,
+                'race_number': race_number,
+                'race_name': race_name if race_name else "レース名",
+                'track': track_type,
+                'distance': distance,
+                'condition': condition,
+                'weather': weather,
+                'waku': auto_waku,
+                'umaban': auto_umaban,
+                'horse_name': r_name if r_name else f"馬番{auto_umaban}",
+                'sex': r_sex,
+                'age': r_age,
+                'jockey': r_jockey if r_jockey else "不明",
+                'trainer': r_trainer if r_trainer else "不明",
+                'stable': r_stable,
+                'sire': r_sire if r_sire else "不明",
+                'dam': r_dam if r_dam else "不明",
+                'weight': r_weight,
+                'blinker': r_blinker_res,
+                'rank': r_rank,
+                'time': r_time if r_time else "0:00.0",
+                'corner': r_corner if r_corner else "0",
+                'odds': r_odds if r_odds > 0 else 1.0,
+                'popularity': r_pop if r_pop > 0 else 1
             })
 
+    MASTER_FILENAME = 'keiba_master_data.csv'
     if st.button("🚀 追加データをマスターに保存する！"):
         df_new = pd.DataFrame(new_data_list)
-        MASTER_FILENAME = 'keiba_master_data.csv'
+       
         if os.path.exists(MASTER_FILENAME):
             try:
                 df_master = pd.read_csv(MASTER_FILENAME, encoding='cp932', low_memory=False)
@@ -222,41 +356,86 @@ with tab2:
             df_combined = pd.concat([df_master, df_new], ignore_index=True)
         else:
             df_combined = df_new
+
         df_combined.to_csv(MASTER_FILENAME, index=False, encoding='cp932')
-        st.success("🎉 追加成功！マスターデータに保存されました！")
+       
+        st.balloons()
+        st.success(f"🎉 追加成功！マスターデータに結果が保存されました！✨")
 
 with tab3:
     st.subheader("🧠 全データでガチAIを再学習させる")
+   
     if len(df_m_auto) > 10:
+        st.success(f"📂 合算データ読み込み成功！学習データ総数: **{len(df_m_auto):,} 行**")
+
         if st.button("🚀 フルデータでAIを再学習・アップデートする！"):
-            import lightgbm as lgb
-            target_train_df = df_m_auto.copy()
-            if len(target_train_df) > 50000:
-                target_train_df = target_train_df.sample(n=50000, random_state=42)
-           
-            target_train_df['jockey_win_rate'] = 0.08
-            target_train_df['blinker'] = 0
-            cat_cols = ['place', 'track', 'condition', 'sire']
-            for col in cat_cols:
-                if col in target_train_df.columns:
-                    le = LabelEncoder()
-                    target_train_df[col] = le.fit_transform(target_train_df[col].astype(str))
+            try:
+                import lightgbm as lgb
+               
+                target_train_df = df_m_auto.copy()
+                target_train_df = target_train_df.loc[:, ~target_train_df.columns.duplicated()]
+               
+                # --- メモリ爆発を防ぐためのデータ間引き（最大5万行に制限） ---
+                if len(target_train_df) > 50000:
+                    target_train_df = target_train_df.sample(n=50000, random_state=42)
+                    st.info("💡 サーバーのメモリ制限を回避するため、直近の良質な5万行を抽出して学習するで！✨")
+               
+                if 'jockey' in target_train_df.columns and 'rank' in target_train_df.columns:
+                    jockey_stats_train = target_train_df.groupby('jockey').agg(
+                        total=('rank', 'count'),
+                        wins=('rank', lambda x: (x == 1).sum())
+                    )
+                    train_rates = {}
+                    for jock, row in jockey_stats_train.iterrows():
+                        if row['total'] > 0:
+                            train_rates[jock] = row['wins'] / row['total']
+                   
+                    target_train_df['jockey_win_rate'] = target_train_df['jockey'].map(train_rates).fillna(0.08)
                 else:
-                    target_train_df[col] = 0
+                    target_train_df['jockey_win_rate'] = 0.08
 
-            target_train_df['target'] = (target_train_df['rank'] == 1).astype(int)
-            features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker']
-            X = target_train_df[features].fillna(0)
-            y = target_train_df['target']
-           
-            clf = lgb.LGBMClassifier(random_state=42)
-            clf.fit(X, y)
-            joblib.dump(clf, 'keiba_ai_model.pkl')
-            st.success("🎉 再学習が完了しました！")
+                if 'blinker' in target_train_df.columns:
+                    target_train_df['blinker'] = target_train_df['blinker'].apply(lambda x: 1 if str(x).strip() == 'B' else 0)
+                else:
+                    target_train_df['blinker'] = 0
 
-with tab4:
-    st.subheader("⚙️ 従来の個別入力モード")
-    user_odds = st.number_input("単勝オッズ微調整", value=5.0)
-    user_umaban = st.number_input("馬番", value=1)
-    if st.button("個別予測実行"):
-        st.write("個別入力での予測検証用タブです。")
+                cat_cols = ['place', 'track', 'condition', 'sire']
+                for col in cat_cols:
+                    if col in target_train_df.columns:
+                        le = LabelEncoder()
+                        target_train_df[col] = target_train_df[col].astype(str)
+                        target_train_df[col] = le.fit_transform(target_train_df[col])
+                    else:
+                        target_train_df[col] = 0
+
+                if 'rank' in target_train_df.columns:
+                    target_train_df['target'] = (target_train_df['rank'] == 1).astype(int)
+                else:
+                    st.error("⚠️ 'rank'（着順）の列が見つかりません。")
+                    st.stop()
+               
+                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker']
+                for feat in features:
+                    if feat not in target_train_df.columns:
+                        target_train_df[feat] = 0
+               
+                X = target_train_df[features].fillna(0)
+                y = target_train_df['target']
+
+                if len(X) < 5:
+                    st.warning("⚠️ データ数が少なすぎます。")
+                else:
+                    clf = lgb.LGBMClassifier(random_state=42)
+                    clf.fit(X, y)
+
+                    model_path = 'keiba_ai_model.pkl'
+                    joblib.dump(clf, model_path)
+
+                    st.balloons()
+                    st.success("🎉 メモリ最適化学習がバッチリ完了しました！✨")
+
+            except Exception as e:
+                st.warning("⚠️ 学習中にエラーが発生しました:")
+                st.write(e)
+    else:
+        st.warning("⚠️ 十分なデータが読み込めていません。")
