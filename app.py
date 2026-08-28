@@ -14,427 +14,442 @@ st.title("🐎【上がり3F特化・最強網羅版】スマホで育てる！�
 st.write("直近データ全行 ＆ 上がり3F分析エンジン稼働中！✨🔥")
 
 def load_model():
- try:
-     if os.path.exists('keiba_ai_model.pkl'):
-         return joblib.load('keiba_ai_model.pkl')
- except Exception:
-     return None
- return None
+    try:
+        if os.path.exists('keiba_ai_model.pkl'):
+            return joblib.load('keiba_ai_model.pkl')
+    except Exception:
+        return None
+    return None
 
 model = load_model()
 
 def parse_corner_position(val):
- try:
-     s = str(val).strip()
-     if '-' in s:
-         return float(s.split('-')[-1])
-     elif s.isdigit():
-         return float(s)
- except:
-     pass
- return 8.0
+    try:
+        s = str(val).strip()
+        if '-' in s:
+            return float(s.split('-')[-1])
+        elif s.isdigit():
+            return float(s)
+    except:
+        pass
+    return 8.0
 
 def parse_time_to_sec(val):
- try:
-     s = str(val).strip()
-     if ':' in s:
-         m, rest = s.split(':')
-         return float(m) * 60 + float(rest)
-     elif s and s != 'nan':
-         return float(s)
- except:
-     pass
- return 0.0
+    try:
+        s = str(val).strip()
+        if ':' in s:
+            m, rest = s.split(':')
+            return float(m) * 60 + float(rest)
+        elif s and s != 'nan':
+            return float(s)
+    except:
+        pass
+    return 0.0
 
 @st.cache_data
 def load_and_process_master_data():
- filename = 'keiba_master_data_part2.csv'
- if not os.path.exists(filename):
-     for alt in ['keiba_master_data.csv', 'keiba_master_data_part1.csv']:
-         if os.path.exists(alt):
-             filename = alt
-             break
-     else:
-         return pd.DataFrame(), {}, {}, {}
+    filename = 'keiba_master_data_part2.csv'
+    if not os.path.exists(filename):
+        for alt in ['keiba_master_data.csv', 'keiba_master_data_part1.csv']:
+            if os.path.exists(alt):
+                filename = alt
+                break
+        else:
+            return pd.DataFrame(), {}, {}, {}
 
- df_m = pd.DataFrame()
- for enc in ['cp932', 'utf-8-sig', 'utf-8']:
-     try:
-         target_cols = ['year', 'month', 'day', 'place', 'track', 'distance', 'condition',
-                        'race_class', 'waku', 'umaban', 'name', 'sex', 'age', 'jockey',
-                        'sire', 'weight', 'rank', 'odds', 'popularity', 'blinker', 'corner', 'time', 'last_3f',
-                        '通過順1', '通過順2', '通過順3', '通過順4', '上がり3Fタイム']
+    df_m = pd.DataFrame()
+    for enc in ['cp932', 'utf-8-sig', 'utf-8']:
+        try:
+            target_cols = ['year', 'month', 'day', 'place', 'track', 'distance', 'condition',
+                           'race_class', 'waku', 'umaban', 'name', 'sex', 'age', 'jockey',
+                           'sire', 'weight', 'rank', 'odds', 'popularity', 'blinker', 'corner', 'time', 'last_3f',
+                           '通過順1', '通過順2', '通過順3', '通過順4', '上がり3Fタイム']
 
-         header_df = pd.read_csv(filename, encoding=enc, nrows=5)
-         header_cols = [c.strip() for c in header_df.columns]
-         use_cols = [c for c in target_cols if c in header_cols]
-         if not use_cols:
-             use_cols = None
+            header_df = pd.read_csv(filename, encoding=enc, nrows=5)
+            header_cols = [c.strip() for c in header_df.columns]
+            use_cols = [c for c in target_cols if c in header_cols]
+            if not use_cols:
+                use_cols = None
 
-         df_m = pd.read_csv(filename, encoding=enc, low_memory=False, usecols=use_cols)
-         if not df_m.empty:
-             df_m.columns = [str(c).strip() for c in df_m.columns]
+            df_m = pd.read_csv(filename, encoding=enc, low_memory=False, usecols=use_cols)
+            if not df_m.empty:
+                df_m.columns = [str(c).strip() for c in df_m.columns]
 
-             col_mapping = {}
-             for c in df_m.columns:
-                 clean_c = c.replace(" ", "").replace("　", "")
-                 if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
-                 elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
-                 elif clean_c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
-                 elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-                 elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
-                 elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り', '上がり3Fタイム', '上り3Fタイム']: col_mapping[c] = 'last_3f'
-                 elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
-                 elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
-             df_m = df_m.rename(columns=col_mapping)
-             break
-     except Exception:
-         continue
+                col_mapping = {}
+                for c in df_m.columns:
+                    clean_c = c.replace(" ", "").replace("　", "")
+                    if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
+                    elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
+                    elif clean_c in ['タイム', 'Time', 'TIME', '走破タイム', '走破時間']: col_mapping[c] = 'time'
+                    elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
+                    elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
+                    elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り', '上がり3Fタイム', '上り3Fタイム']: col_mapping[c] = 'last_3f'
+                    elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
+                    elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
+                df_m = df_m.rename(columns=col_mapping)
+                break
+        except Exception:
+            continue
 
- if df_m.empty:
-     return pd.DataFrame(), {}, {}, {}
+    if df_m.empty:
+        return pd.DataFrame(), {}, {}, {}
 
- if 'name' in df_m.columns:
-     df_m['name'] = df_m['name'].astype(str).str.strip()
- if 'rank' in df_m.columns:
-     df_m['rank'] = pd.to_numeric(df_m['rank'], errors='coerce').fillna(1)
- else:
-     df_m['rank'] = 1
+    if 'name' in df_m.columns:
+        df_m['name'] = df_m['name'].astype(str).str.strip()
+    if 'rank' in df_m.columns:
+        df_m['rank'] = pd.to_numeric(df_m['rank'], errors='coerce').fillna(1)
+    else:
+        df_m['rank'] = 1
 
- if 'last_3f' in df_m.columns:
-     df_m['last_3f'] = pd.to_numeric(df_m['last_3f'], errors='coerce')
-     df_m.loc[(df_m['last_3f'] < 25.0) | (df_m['last_3f'] > 50.0), 'last_3f'] = np.nan
-     df_m['last_3f'] = df_m['last_3f'].fillna(35.0)
- else:
-     df_m['last_3f'] = 35.0
+    if 'last_3f' in df_m.columns:
+        df_m['last_3f'] = pd.to_numeric(df_m['last_3f'], errors='coerce')
+        df_m.loc[(df_m['last_3f'] < 25.0) | (df_m['last_3f'] > 50.0), 'last_3f'] = np.nan
+        df_m['last_3f'] = df_m['last_3f'].fillna(35.0)
+    else:
+        df_m['last_3f'] = 35.0
 
- if 'distance' in df_m.columns:
-     df_m['distance'] = pd.to_numeric(df_m['distance'], errors='coerce').fillna(2000.0)
- else:
-     df_m['distance'] = 2000.0
+    if 'distance' in df_m.columns:
+        df_m['distance'] = pd.to_numeric(df_m['distance'], errors='coerce').fillna(2000.0)
+    else:
+        df_m['distance'] = 2000.0
 
- df_m['corner_4th'] = df_m['corner'].apply(parse_corner_position) if 'corner' in df_m.columns else 8.0
- df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
+    df_m['corner_4th'] = df_m['corner'].apply(parse_corner_position) if 'corner' in df_m.columns else 8.0
+    df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
- jockey_win_rates = {}
- if 'jockey' in df_m.columns and 'rank' in df_m.columns:
-     j_stats = df_m.groupby('jockey').agg(total=('rank', 'count'), wins=('rank', lambda x: (x == 1).sum()))
-     for j, row in j_stats.iterrows():
-         if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
+    jockey_win_rates = {}
+    if 'jockey' in df_m.columns and 'rank' in df_m.columns:
+        j_stats = df_m.groupby('jockey').agg(total=('rank', 'count'), wins=('rank', lambda x: (x == 1).sum()))
+        for j, row in j_stats.iterrows():
+            if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
 
- horse_history_features = {}
- horse_distance_features = {}
+    horse_history_features = {}
+    horse_distance_features = {}
 
- if 'name' in df_m.columns:
-     h_grouped = df_m.groupby('name').agg(
-         avg_rank=('rank', 'mean'),
-         best_rank=('rank', 'min'),
-         avg_time=('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
-         avg_last_3f=('last_3f', 'mean'),
-         race_count=('rank', 'count')
-     )
-     for h_name, row in h_grouped.iterrows():
-         clean_name = str(h_name).strip()
-         horse_history_features[clean_name] = {
-             'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
-             'best_rank': row['best_rank'] if not np.isnan(row['best_rank']) else 5.0,
-             'avg_time': row['avg_time'] if not np.isnan(row['avg_time']) else 0.0,
-             'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
-             'race_count': row['race_count']
-         }
+    if 'name' in df_m.columns:
+        h_grouped = df_m.groupby('name').agg(
+            avg_rank=('rank', 'mean'),
+            best_rank=('rank', 'min'),
+            avg_time=('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
+            avg_last_3f=('last_3f', 'mean'),
+            race_count=('rank', 'count')
+        )
+        for h_name, row in h_grouped.iterrows():
+            clean_name = str(h_name).strip()
+            horse_history_features[clean_name] = {
+                'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
+                'best_rank': row['best_rank'] if not np.isnan(row['best_rank']) else 5.0,
+                'avg_time': row['avg_time'] if not np.isnan(row['avg_time']) else 0.0,
+                'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
+                'race_count': row['race_count']
+            }
 
-     if 'distance' in df_m.columns:
-         d_grouped = df_m.groupby(['name', 'distance']).agg(
-             avg_rank=('rank', 'mean'),
-             avg_last_3f=('last_3f', 'mean'),
-             race_count=('rank', 'count')
-         )
-         for (h_name, dist), row in d_grouped.iterrows():
-             clean_name = str(h_name).strip()
-             if clean_name not in horse_distance_features:
-                 horse_distance_features[clean_name] = {}
-             horse_distance_features[clean_name][float(dist)] = {
-                 'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
-                 'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
-                 'race_count': row['race_count']
-             }
+        if 'distance' in df_m.columns:
+            d_grouped = df_m.groupby(['name', 'distance']).agg(
+                avg_rank=('rank', 'mean'),
+                avg_last_3f=('last_3f', 'mean'),
+                race_count=('rank', 'count')
+            )
+            for (h_name, dist), row in d_grouped.iterrows():
+                clean_name = str(h_name).strip()
+                if clean_name not in horse_distance_features:
+                    horse_distance_features[clean_name] = {}
+                horse_distance_features[clean_name][float(dist)] = {
+                    'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
+                    'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
+                    'race_count': row['race_count']
+                }
 
- return df_m, jockey_win_rates, horse_history_features, horse_distance_features
+    return df_m, jockey_win_rates, horse_history_features, horse_distance_features
 
 df_m_auto, jockey_win_rates, horse_history_features, horse_distance_features = load_and_process_master_data()
 
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
- st.subheader("🚀 勝ち馬のガチ予測（上がり3Fデータ反映版）")
+    st.subheader("🚀 勝ち馬のガチ予測（上がり3Fデータ反映版）")
 
- col_p1, col_p2, col_p3 = st.columns(3)
- with col_p1:
-     p_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="p_place")
-     p_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="p_class")
- with col_p2:
-     p_track = st.selectbox("トラック", ["芝", "ダート", "障害"], key="p_track")
-     p_distance = st.number_input("距離 (m)", value=2000, step=100, key="p_distance")
- with col_p3:
-     p_condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="p_condition")
+    col_p1, col_p2, col_p3 = st.columns(3)
+    with col_p1:
+        p_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="p_place")
+        p_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="p_class")
+    with col_p2:
+        p_track = st.selectbox("トラック", ["芝", "ダート", "障害"], key="p_track")
+        p_distance = st.number_input("距離 (m)", value=2000, step=100, key="p_distance")
+    with col_p3:
+        p_condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="p_condition")
 
- st.markdown("---")
- st.markdown("### 📋 出馬表テキストの一発ペースト")
- raw_text = st.text_area("ここにnetkeibaの出馬表をペースト", height=150, key="raw_text_input")
+    st.markdown("---")
+    st.markdown("### 📋 出馬表テキストの一発ペースト")
+    raw_text = st.text_area("ここにnetkeibaの出馬表をペースト", height=150, key="raw_text_input")
 
- input_data_list = []
- try:
-     if raw_text.strip():
-         lines = [line.strip() for line in raw_text.strip().split('\n') if line.strip() != ""]
-         i = 0
-         while i < len(lines):
-             line = lines[i]
-             if line.isdigit() and 1 <= int(line) <= 18:
-                 umaban = int(line)
-                 waku = min(8, max(1, ((umaban - 1) // 2) + 1))
-                 h_name = f"馬番{umaban}"
-                 sex = "牡"
-                 age = 4
-                 jockey = "不明"
-                 weight = 56.0
-                 odds = 10.0
-                 popularity = umaban
+    input_data_list = []
+    try:
+        if raw_text.strip():
+            lines = [line.strip() for line in raw_text.strip().split('\n') if line.strip() != ""]
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                if line.isdigit() and 1 <= int(line) <= 18:
+                    umaban = int(line)
+                    waku = min(8, max(1, ((umaban - 1) // 2) + 1))
+                    h_name = f"馬番{umaban}"
+                    sex = "牡"
+                    age = 4
+                    jockey = "不明"
+                    weight = 56.0
+                    odds = 10.0
+                    popularity = umaban
 
-                 block_lines = []
-                 j = i + 1
-                 while j < len(lines):
-                     if lines[j].isdigit() and 1 <= int(lines[j]) <= 18:
-                         break
-                     block_lines.append(lines[j])
-                     j += 1
+                    block_lines = []
+                    j = i + 1
+                    while j < len(lines):
+                        if lines[j].isdigit() and 1 <= int(lines[j]) <= 18:
+                            break
+                        block_lines.append(lines[j])
+                        j += 1
 
-                 for bl in block_lines:
-                     if "データベース" in bl:
-                         h_name = bl.replace("のデータベース", "").strip().replace("◎", "").replace("〇", "").replace("▲", "").strip()
-                     elif any(s in bl for s in ["牡", "牝", "セ"]) and len(bl) <= 8:
-                         sex = bl[0]
-                         for char in bl:
-                             if char.isdigit(): age = int(char)
-                     elif "人気" in bl:
-                         try: popularity = int(bl.replace("人気", "").strip())
-                         except: pass
-                     else:
-                         try:
-                             val = float(bl)
-                             if 0.1 <= val < 2000:
-                                 if val >= 1.0 and val != popularity: odds = val
-                             elif 45.0 <= val <= 65.0:
-                                 weight = val
-                         except ValueError:
-                             if len(bl) >= 2 and not any(c.isdigit() for c in bl) and not any(kw in bl for kw in ["人気", "厩舎", "データベース", "馬体重", "調教", "メモ", "iPhoneから"]):
-                                 if jockey == "不明": jockey = bl
+                    for bl in block_lines:
+                        # 馬名の取得強化 (データベースや固有のキーワード、記号を除去しつつ次の行や該当行を綺麗に拾う)
+                        if "データベース" in bl:
+                            cleaned_name = bl.replace("のデータベース", "").strip().replace("◎", "").replace("〇", "").replace("▲", "").replace("△", "").strip()
+                            if cleaned_name:
+                                h_name = cleaned_name
+                        elif any(s in bl for s in ["牡", "牝", "セン", "セ"]) and len(bl) <= 10:
+                            # 性別と年齢の正確な抽出 (例: "牡4" や "牝3" など)
+                            if "牝" in bl:
+                                sex = "牝"
+                            elif "セ" in bl or "セン" in bl:
+                                sex = "セン"
+                            else:
+                                sex = "牡"
+                            for char in bl:
+                                if char.isdigit():
+                                    age = int(char)
+                                    break
+                        elif "人気" in bl:
+                            try: popularity = int(bl.replace("人気", "").strip())
+                            except: pass
+                        else:
+                            try:
+                                val = float(bl)
+                                if 0.1 <= val < 2000:
+                                    if val >= 1.0 and val != popularity: odds = val
+                                elif 45.0 <= val <= 65.0:
+                                    weight = val
+                            except ValueError:
+                                if len(bl) >= 2 and not any(c.isdigit() for c in bl) and not any(kw in bl for kw in ["人気", "厩舎", "データベース", "馬体重", "調教", "メモ", "iPhoneから"]):
+                                    if jockey == "不明": jockey = bl
 
-                 clean_h_name = h_name.replace("外", "").replace("地", "").strip()
-                 for bl in block_lines:
-                     candidate = bl.replace("◎", "").replace("〇", "").replace("▲", "").strip()
-                     for m_name in horse_history_features.keys():
-                         if candidate == m_name or (len(m_name) >= 2 and m_name in candidate):
-                             clean_h_name = m_name
-                             break
-                     if clean_h_name != h_name.replace("外", "").replace("地", "").strip():
-                         break
+                    # ブロック内から正規の馬名マスターにマッチしやすい候補を探す
+                    clean_h_name = h_name.replace("外", "").replace("地", "").strip()
+                    for bl in block_lines:
+                        candidate = bl.replace("◎", "").replace("〇", "").replace("▲", "").replace("△", "").strip()
+                        if "データベース" not in candidate and not any(s in candidate for s in ["牡", "牝", "セ"]) and "人気" not in candidate:
+                            if len(candidate) >= 2 and not candidate.replace('.', '', 1).isdigit():
+                                clean_h_name = candidate
+                                break
 
-                 matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0}
+                    for m_name in horse_history_features.keys():
+                        if clean_h_name == m_name or (len(m_name) >= 2 and m_name in clean_h_name) or (len(clean_h_name) >= 2 and clean_h_name in m_name):
+                            clean_h_name = m_name
+                            break
 
-                 for m_name, hist in horse_history_features.items():
-                     if clean_h_name == m_name or clean_h_name in m_name or m_name in clean_h_name:
-                         matched_hist = hist.copy()
-                         break
+                    matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0}
 
-                 if clean_h_name in horse_distance_features:
-                     d_dict = horse_distance_features[clean_h_name]
-                     if float(p_distance) in d_dict:
-                         matched_hist['avg_rank'] = d_dict[float(p_distance)]['avg_rank']
-                         matched_hist['avg_last_3f'] = d_dict[float(p_distance)]['avg_last_3f']
-                     else:
-                         closest_dist = min(d_dict.keys(), key=lambda x: abs(x - float(p_distance)))
-                         if abs(closest_dist - float(p_distance)) <= 400:
-                             matched_hist['avg_rank'] = d_dict[closest_dist]['avg_rank']
-                             matched_hist['avg_last_3f'] = d_dict[closest_dist]['avg_last_3f']
+                    for m_name, hist in horse_history_features.items():
+                        if clean_h_name == m_name or clean_h_name in m_name or m_name in clean_h_name:
+                            matched_hist = hist.copy()
+                            break
 
-                 input_data_list.append({
-                     'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
-                     'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': clean_h_name, 'sex': sex, 'age': age, 'sire': '不明',
-                     'odds': odds, 'popularity': popularity, 'weight': weight, 'jockey': jockey,
-                     'jockey_win_rate': jockey_win_rates.get(jockey, 0.08),
-                     'past_avg_rank': matched_hist['avg_rank'],
-                     'past_best_rank': matched_hist['best_rank'],
-                     'time_sec': matched_hist['avg_time'] if matched_hist['avg_time'] > 0 else 0.0,
-                     'last_3f': matched_hist['avg_last_3f'],
-                     'blinker': 0, 'corner_4th': 8.0
-                 })
-                 i = j - 1
-             i += 1
- except Exception:
-     input_data_list = []
+                    if clean_h_name in horse_distance_features:
+                        d_dict = horse_distance_features[clean_h_name]
+                        if float(p_distance) in d_dict:
+                            matched_hist['avg_rank'] = d_dict[float(p_distance)]['avg_rank']
+                            matched_hist['avg_last_3f'] = d_dict[float(p_distance)]['avg_last_3f']
+                        else:
+                            closest_dist = min(d_dict.keys(), key=lambda x: abs(x - float(p_distance)))
+                            if abs(closest_dist - float(p_distance)) <= 400:
+                                matched_hist['avg_rank'] = d_dict[closest_dist]['avg_rank']
+                                matched_hist['avg_last_3f'] = d_dict[closest_dist]['avg_last_3f']
 
- if len(input_data_list) == 0:
-     st.warning("⚠️ テキスト未入力または解析対象外のため、デフォルトの8頭で表示しています。")
-     for i in range(8):
-         input_data_list.append({
-             'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
-             'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
-             'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
-             'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 'corner_4th': 8.0
-         })
- else:
-     matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
-     st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭** / Part2総読込行数: {len(df_m_auto):,})")
+                    input_data_list.append({
+                        'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
+                        'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': clean_h_name, 'sex': sex, 'age': age, 'sire': '不明',
+                        'odds': odds, 'popularity': popularity, 'weight': weight, 'jockey': jockey,
+                        'jockey_win_rate': jockey_win_rates.get(jockey, 0.08),
+                        'past_avg_rank': matched_hist['avg_rank'],
+                        'past_best_rank': matched_hist['best_rank'],
+                        'time_sec': matched_hist['avg_time'] if matched_hist['avg_time'] > 0 else 0.0,
+                        'last_3f': matched_hist['avg_last_3f'],
+                        'blinker': 0, 'corner_4th': 8.0
+                    })
+                    i = j - 1
+                i += 1
+    except Exception:
+        input_data_list = []
 
- if st.button("🚀 ガチ予測を実行する！"):
-     df_input = pd.DataFrame(input_data_list)
-     df_input['odds'] = pd.to_numeric(df_input['odds'], errors='coerce').fillna(10.0)
-     df_input['popularity'] = pd.to_numeric(df_input['popularity'], errors='coerce').fillna(99)
-     df_input['distance'] = float(p_distance)
-     df_input['condition'] = str(p_condition)
+    if len(input_data_list) == 0:
+        st.warning("⚠️ テキスト未入力または解析対象外のため、デフォルトの8頭で表示しています。")
+        for i in range(8):
+            input_data_list.append({
+                'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
+                'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
+                'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
+                'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 'corner_4th': 8.0
+            })
+    else:
+        matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭** / Part2総読込行数: {len(df_m_auto):,})")
 
-     if model is not None:
-         try:
-             df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
-             df_full = df_full.loc[:, ~df_full.columns.duplicated()]
-             for col in ['place', 'track', 'condition', 'sire', 'race_class']:
-                 if col in df_full.columns:
-                     df_full[col] = LabelEncoder().fit_transform(df_full[col].astype(str))
-             df_input_enc = df_full.tail(len(df_input)).copy()
-             features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec', 'last_3f']
-             for f in features:
-                 if f not in df_input_enc.columns: df_input_enc[f] = 0
-             model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
+    if st.button("🚀 ガチ予測を実行する！"):
+        df_input = pd.DataFrame(input_data_list)
+        df_input['odds'] = pd.to_numeric(df_input['odds'], errors='coerce').fillna(10.0)
+        df_input['popularity'] = pd.to_numeric(df_input['popularity'], errors='coerce').fillna(99)
+        df_input['distance'] = float(p_distance)
+        df_input['condition'] = str(p_condition)
 
-             score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
-             exp_s = np.exp(score - score.max())
-             df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
-         except Exception as e:
-             score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
-             exp_s = np.exp(score - score.max())
-             df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
-     else:
-         score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
-         exp_s = np.exp(score - score.max())
-         df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
+        if model is not None:
+            try:
+                df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
+                df_full = df_full.loc[:, ~df_full.columns.duplicated()]
+                for col in ['place', 'track', 'condition', 'sire', 'race_class']:
+                    if col in df_full.columns:
+                        df_full[col] = LabelEncoder().fit_transform(df_full[col].astype(str))
+                df_input_enc = df_full.tail(len(df_input)).copy()
+                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec', 'last_3f']
+                for f in features:
+                    if f not in df_input_enc.columns: df_input_enc[f] = 0
+                model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
-     df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
-     st.balloons()
-     st.subheader("🎯 ガチAI予測結果ランキング（上がり3F反映版）")
+                score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
+                exp_s = np.exp(score - score.max())
+                df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
+            except Exception as e:
+                score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+                exp_s = np.exp(score - score.max())
+                df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
+        else:
+            score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+            exp_s = np.exp(score - score.max())
+            df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
-     for idx, row in df_input.iterrows():
-         u_num = row.get('umaban', idx+1)
-         h_sex = row.get('sex', '牡')
-         h_age = row.get('age', 4)
-         h_name = row.get('name', f'馬番{u_num}')
-         h_prob = row.get('win_prob', 0.0)
-         h_avg = row.get('past_avg_rank', 5.0)
-         h_l3f = row.get('last_3f', 35.0)
-         h_odds = row.get('odds', 10.0)
-         h_jockey = row.get('jockey', '不明')
+        df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
+        st.balloons()
+        st.subheader("🎯 ガチAI予測結果ランキング（上がり3F反映版）")
 
-         st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+        for idx, row in df_input.iterrows():
+            u_num = row.get('umaban', idx+1)
+            h_sex = row.get('sex', '牡')
+            h_age = row.get('age', 4)
+            h_name = row.get('name', f'馬番{u_num}')
+            h_prob = row.get('win_prob', 0.0)
+            h_avg = row.get('past_avg_rank', 5.0)
+            h_l3f = row.get('last_3f', 35.0)
+            h_odds = row.get('odds', 10.0)
+            h_jockey = row.get('jockey', '不明')
+
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
- st.subheader("📝 レース結果をPart2マスターに追加する（上がり3F入力対応）")
- col_d1, col_d2, col_d3 = st.columns(3)
- with col_d1: r_year = st.number_input("年", min_value=2000, max_value=2030, value=2026, key="r_year")
- with col_d2: r_month = st.number_input("月", min_value=1, max_value=12, value=6, key="r_month")
- with col_d3: r_day = st.number_input("日", min_value=1, max_value=31, value=1, key="r_day")
+    st.subheader("📝 レース結果をPart2マスターに追加する（上がり3F入力対応）")
+    col_d1, col_d2, col_d3 = st.columns(3)
+    with col_d1: r_year = st.number_input("年", min_value=2000, max_value=2030, value=2026, key="r_year")
+    with col_d2: r_month = st.number_input("月", min_value=1, max_value=12, value=6, key="r_month")
+    with col_d3: r_day = st.number_input("日", min_value=1, max_value=31, value=1, key="r_day")
 
- col_r1, col_r2, col_r3 = st.columns(3)
- with col_r1:
-     race_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="r_place")
-     race_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="r_class")
- with col_r2:
-     track_type = st.selectbox("トラック", ["芝", "ダート", "障害"], key="r_track")
-     distance = st.number_input("距離 (m)", value=2000, step=100, key="r_distance")
- with col_r3:
-     condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="r_cond")
+    col_r1, col_r2, col_r3 = st.columns(3)
+    with col_r1:
+        race_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="r_place")
+        race_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="r_class")
+    with col_r2:
+        track_type = st.selectbox("トラック", ["芝", "ダート", "障害"], key="r_track")
+        distance = st.number_input("距離 (m)", value=2000, step=100, key="r_distance")
+    with col_r3:
+        condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="r_cond")
 
- res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=8, key="res_num")
- new_data_list = []
- for i in range(res_num_horses):
-     u_num = i + 1
-     with st.expander(f"馬番 {u_num} の結果入力", expanded=False):
-         col_a, col_b = st.columns(2)
-         with col_a:
-             r_name = st.text_input("馬名", f"馬番{u_num}", key=f"r_name_{i}")
-             r_rank = st.number_input("確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
-             r_odds = st.number_input("単勝オッズ", value=10.0, min_value=0.0, step=0.1, key=f"r_odds_{i}")
-             r_pop = st.number_input("人気順", value=u_num, min_value=1, step=1, key=f"r_pop_{i}")
-             r_blinker_str = st.selectbox("ブリンカー", ["なし", "B (あり)"], key=f"r_blinker_{i}")
-             r_blinker = 1 if "B" in r_blinker_str else 0
+    res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=8, key="res_num")
+    new_data_list = []
+    for i in range(res_num_horses):
+        u_num = i + 1
+        with st.expander(f"馬番 {u_num} の結果入力", expanded=False):
+            col_a, col_b = st.columns(2)
+            with col_a:
+                r_name = st.text_input("馬名", f"馬番{u_num}", key=f"r_name_{i}")
+                r_rank = st.number_input("確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
+                r_odds = st.number_input("単勝オッズ", value=10.0, min_value=0.0, step=0.1, key=f"r_odds_{i}")
+                r_pop = st.number_input("人気順", value=u_num, min_value=1, step=1, key=f"r_pop_{i}")
+                r_blinker_str = st.selectbox("ブリンカー", ["なし", "B (あり)"], key=f"r_blinker_{i}")
+                r_blinker = 1 if "B" in r_blinker_str else 0
 
-         with col_b:
-             r_jockey = st.text_input("騎手名", "不明", key=f"r_jockey_{i}")
-             r_weight = st.number_input("斤量", value=56.0, step=0.5, key=f"r_weight_{i}")
-             r_sire = st.text_input("父馬名", "不明", key=f"r_sire_{i}")
-             r_age = st.number_input("年齢", min_value=2, max_value=15, value=4, key=f"r_age_{i}")
-             r_corner = st.text_input("通過順 (例: 1-1-1-1)", "5-5-4-3", key=f"r_corner_{i}")
-             r_time = st.text_input("走破タイム (例: 1:45.2)", "2:00.0", key=f"r_time_{i}")
-             r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
+            with col_b:
+                r_jockey = st.text_input("騎手名", "不明", key=f"r_jockey_{i}")
+                r_weight = st.number_input("斤量", value=56.0, step=0.5, key=f"r_weight_{i}")
+                r_sire = st.text_input("父馬名", "不明", key=f"r_sire_{i}")
+                r_age = st.number_input("年齢", min_value=2, max_value=15, value=4, key=f"r_age_{i}")
+                r_corner = st.text_input("通過順 (例: 1-1-1-1)", "5-5-4-3", key=f"r_corner_{i}")
+                r_time = st.text_input("走破タイム (例: 1:45.2)", "2:00.0", key=f"r_time_{i}")
+                r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
-         c_parts = [c.strip() for c in str(r_corner).split('-')]
-         c1 = c_parts[0] if len(c_parts) > 0 else ""
-         c2 = c_parts[1] if len(c_parts) > 1 else ""
-         c3 = c_parts[2] if len(c_parts) > 2 else ""
-         c4 = c_parts[3] if len(c_parts) > 3 else ""
+            c_parts = [c.strip() for c in str(r_corner).split('-')]
+            c1 = c_parts[0] if len(c_parts) > 0 else ""
+            c2 = c_parts[1] if len(c_parts) > 1 else ""
+            c3 = c_parts[2] if len(c_parts) > 2 else ""
+            c4 = c_parts[3] if len(c_parts) > 3 else ""
 
-         new_data_list.append({
-             'year': r_year, 'month': r_month, 'day': r_day,
-             'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
-             'race_class': race_class, 'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': r_name,
-             'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
-             'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
-             'corner': r_corner, 'corner_4th': parse_corner_position(r_corner),
-             '通過順1': c1, '通過順2': c2, '通過順3': c3, '通過順4': c4,
-             'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
-         })
+            new_data_list.append({
+                'year': r_year, 'month': r_month, 'day': r_day,
+                'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
+                'race_class': race_class, 'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': r_name,
+                'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
+                'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
+                'corner': r_corner, 'corner_4th': parse_corner_position(r_corner),
+                '通過順1': c1, '通過順2': c2, '通過順3': c3, '通過順4': c4,
+                'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
+            })
 
- if st.button("🚀 追加データをPart2マスターに保存する！"):
-     df_new = pd.DataFrame(new_data_list)
-     df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
-     df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
-     st.balloons()
-     st.success("🎉 通過順1〜4の分解データ及び上がり3Fデータを含む結果がPart2マスターに保存されました！")
+    if st.button("🚀 追加データをPart2マスターに保存する！"):
+        df_new = pd.DataFrame(new_data_list)
+        df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
+        df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
+        st.balloons()
+        st.success("🎉 通過順1〜4の分解データ及び上がり3Fデータを含む結果がPart2マスターに保存されました！")
 
 with tab3:
- st.subheader("🧠 ガチAIを再学習させる")
- if not df_m_auto.empty:
-     st.success(f"📂 Part2マスターデータ読み込み成功！ (読込行数: {len(df_m_auto):,})")
-     if st.button("🚀 AIを再学習・アップデートする！"):
-         try:
-             import lightgbm as lgb
-             df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
-             if 'rank' not in df_train.columns:
-                 df_train['rank'] = 1
-             if 'last_3f' not in df_train.columns:
-                 df_train['last_3f'] = 35.0
-             if 'distance' not in df_train.columns:
-                 df_train['distance'] = 2000.0
-             if 'condition' not in df_train.columns:
-                 df_train['condition'] = '良'
+    st.subheader("🧠 ガチAIを再学習させる")
+    if not df_m_auto.empty:
+        st.success(f"📂 Part2マスターデータ読み込み成功！ (読込行数: {len(df_m_auto):,})")
+        if st.button("🚀 AIを再学習・アップデートする！"):
+            try:
+                import lightgbm as lgb
+                df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
+                if 'rank' not in df_train.columns:
+                    df_train['rank'] = 1
+                if 'last_3f' not in df_train.columns:
+                    df_train['last_3f'] = 35.0
+                if 'distance' not in df_train.columns:
+                    df_train['distance'] = 2000.0
+                if 'condition' not in df_train.columns:
+                    df_train['condition'] = '良'
 
-             if len(df_train) > 10000: df_train = df_train.sample(n=10000, random_state=42)
-             df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
+                if len(df_train) > 10000: df_train = df_train.sample(n=10000, random_state=42)
+                df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
 
-             for col in ['place', 'track', 'condition', 'sire', 'race_class']:
-                 if col in df_train.columns:
-                     df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
+                for col in ['place', 'track', 'condition', 'sire', 'race_class']:
+                    if col in df_train.columns:
+                        df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
 
-             features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec', 'last_3f']
-             for f in features:
-                 if f not in df_train.columns: df_train[f] = 0
+                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec', 'last_3f']
+                for f in features:
+                    if f not in df_train.columns: df_train[f] = 0
 
-             X = df_train[features].fillna(0)
-             y = df_train['target']
-             clf = lgb.LGBMClassifier(random_state=42)
-             clf.fit(X, y)
-             joblib.dump(clf, 'keiba_ai_model.pkl')
-             st.balloons()
-             st.success("🎉 再学習完了！距離や馬場状態、上がり3Fのファクターも含めてモデルがアップデートされました！")
-         except Exception as e:
-             st.warning(f"⚠️ 学習エラー: {e}")
- else:
-     st.warning("⚠️ Part2マスターデータが見つかりません。")
+                X = df_train[features].fillna(0)
+                y = df_train['target']
+                clf = lgb.LGBMClassifier(random_state=42)
+                clf.fit(X, y)
+                joblib.dump(clf, 'keiba_ai_model.pkl')
+                st.balloons()
+                st.success("🎉 再学習完了！距離や馬場状態、上がり3Fのファクターも含めてモデルがアップデートされました！")
+            except Exception as e:
+                st.warning(f"⚠️ 学習エラー: {e}")
+    else:
+        st.warning("⚠️ Part2マスターデータが見つかりません。")
