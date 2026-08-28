@@ -6,7 +6,7 @@ import os
 from sklearn.preprocessing import LabelEncoder
 
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("マスターデータの列名完全防衛＆着順揺れ吸収エンジン稼働中！✨🔥")
+st.write("予測結果表示の完全防衛エンジン稼働中！✨🔥")
 
 def load_model():
     try:
@@ -36,12 +36,11 @@ if dfs:
     df_m_auto = pd.concat(dfs, ignore_index=True)
     df_m_auto.columns = [str(c).strip() for c in df_m_auto.columns]
    
-    # 柔軟な列名マッピング（確定着順やスペース混じりも完全にカバー）
     col_mapping = {}
     for c in df_m_auto.columns:
         clean_c = c.replace(" ", "").replace("　", "")
         if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
-        elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK', '着順']: col_mapping[c] = 'rank'
+        elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
         elif clean_c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
         elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
         elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
@@ -245,8 +244,19 @@ with tab1:
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
         st.subheader("🎯 ガチAI予測結果ランキング（過去データ反映版）")
+       
+        # 安全に列名を参照するループ処理
         for idx, row in df_input.iterrows():
-            st.write(f"**第 {idx+1} 位**: 馬番 {row['umaban']} 🐴 {row['sex']}{row['age']} **{row['name']}** (予測勝率: **{row['win_prob']:.2f}%** / 過去平均着順: {row['past_avg_rank']:.1f着} / オッズ: {row['odds']}倍 / 騎手: {row['jockey']})")
+            u_num = row.get('umaban', idx+1)
+            h_sex = row.get('sex', '牡')
+            h_age = row.get('age', 4)
+            h_name = row.get('name', f'馬番{u_num}')
+            h_prob = row.get('win_prob', 0.0)
+            h_avg = row.get('past_avg_rank', 5.0)
+            h_odds = row.get('odds', 10.0)
+            h_jockey = row.get('jockey', '不明')
+           
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 過去平均着順: {h_avg:.1f}着 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をマスターに追加する")
@@ -336,3 +346,5 @@ with tab3:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
         st.warning("⚠️ マスターデータが見つかりません。")
+
+iPhoneから
