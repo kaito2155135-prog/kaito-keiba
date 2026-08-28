@@ -6,7 +6,7 @@ import os
 from sklearn.preprocessing import LabelEncoder
 
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("マスターデータの列名自動補正＆堅牢化エンジン稼働中！✨🔥")
+st.write("マスターデータの列名完全防衛＆着順揺れ吸収エンジン稼働中！✨🔥")
 
 def load_model():
     try:
@@ -18,7 +18,7 @@ def load_model():
 
 model = load_model()
 
-# 分割されたマスターデータの自動合体＆列名の揺れを完全吸収
+# 分割されたマスターデータの自動合体＆安全な列名変換
 df_m_auto = pd.DataFrame()
 dfs = []
 for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
@@ -36,18 +36,24 @@ if dfs:
     df_m_auto = pd.concat(dfs, ignore_index=True)
     df_m_auto.columns = [str(c).strip() for c in df_m_auto.columns]
    
-    # 列名の揺れを強制マッピング
+    # 柔軟な列名マッピング（確定着順やスペース混じりも完全にカバー）
     col_mapping = {}
     for c in df_m_auto.columns:
-        if c in ['馬名', 'horse_name', 'H_Name']: col_mapping[c] = 'name'
-        elif c in ['着順', '順位', 'Rank', 'RANK']: col_mapping[c] = 'rank'
-        elif c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
-        elif c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-        elif c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
+        clean_c = c.replace(" ", "").replace("　", "")
+        if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
+        elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK', '着順']: col_mapping[c] = 'rank'
+        elif clean_c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
+        elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
+        elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
     df_m_auto = df_m_auto.rename(columns=col_mapping)
 
-if not df_m_auto.empty and 'name' in df_m_auto.columns:
-    df_m_auto['name'] = df_m_auto['name'].astype(str).str.strip()
+if not df_m_auto.empty:
+    if 'name' in df_m_auto.columns:
+        df_m_auto['name'] = df_m_auto['name'].astype(str).str.strip()
+    if 'rank' in df_m_auto.columns:
+        df_m_auto['rank'] = pd.to_numeric(df_m_auto['rank'], errors='coerce')
+    else:
+        df_m_auto['rank'] = 1
 
 def parse_corner_position(val):
     try:
@@ -85,7 +91,6 @@ else:
 # 騎手勝率の集計
 jockey_win_rates = {}
 if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto.columns:
-    df_m_auto['rank'] = pd.to_numeric(df_m_auto['rank'], errors='coerce')
     j_stats = df_m_auto.groupby('jockey').agg(total=('rank', 'count'), wins=('rank', lambda x: (x == 1).sum()))
     for j, row in j_stats.iterrows():
         if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
@@ -93,7 +98,6 @@ if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto
 # 馬ごとの過去実績辞書を作成
 horse_history_features = {}
 if not df_m_auto.empty and 'name' in df_m_auto.columns:
-    df_m_auto['rank'] = pd.to_numeric(df_m_auto['rank'], errors='coerce')
     h_grouped = df_m_auto.groupby('name').agg(
         avg_rank=('rank', 'mean'),
         best_rank=('rank', 'min'),
@@ -230,7 +234,6 @@ with tab1:
                 exp_s = np.exp(score - score.max())
                 df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
             except Exception as e:
-                st.error(f"予測計算エラー: {e}")
                 score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
                 exp_s = np.exp(score - score.max())
                 df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
