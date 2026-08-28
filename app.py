@@ -66,7 +66,6 @@ def load_and_process_master_data():
     df_m = pd.DataFrame()
     for enc in ['cp932', 'utf-8-sig', 'utf-8']:
         try:
-            # 日本語列名も含めたターゲットリスト
             target_cols = [
                 'year', 'month', 'day', 'place', 'track', 'distance', 'condition',
                 'race_class', 'waku', 'umaban', 'name', 'sex', 'age', 'jockey',
@@ -229,6 +228,7 @@ with tab1:
                         block_lines.append(lines[j])
                         j += 1
 
+                    # 馬名の正確な抽出（マスターデータの完全一致を最優先し、途切れた名前で上書きさせない）
                     for bl in block_lines:
                         clean_bl = clean_str(bl)
                         if clean_bl in horse_history_features:
@@ -238,7 +238,7 @@ with tab1:
                     if h_name.startswith("馬番"):
                         for bl in block_lines:
                             clean_b = clean_str(bl.replace("--", ""))
-                            if clean_b and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "kg"]):
+                            if clean_b and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "kg"]) and len(clean_b) >= 2:
                                 h_name = clean_b
                                 break
 
@@ -254,7 +254,8 @@ with tab1:
                                         if left_part and left_part[0].isdigit():
                                             age = int(left_part[0])
                                             left_part = left_part[1:].lstrip()
-                                if left_part and h_name.startswith("馬番"):
+                                # データベース行の左側から取得できる名前が長くて妥当な場合のみ採用（短い名前で上書きするバグを防止）
+                                if left_part and (h_name.startswith("馬番") or len(left_part) > len(h_name)):
                                     h_name = left_part
 
                             if len(parts) > 1:
@@ -294,9 +295,10 @@ with tab1:
 
                     clean_h_name = clean_str(h_name)
 
+                    # マスターデータとのマッチング（長い正しい名前を優先し、短い部分一致での誤爆を防止）
                     matched_name = clean_h_name
                     for m_name in horse_history_features.keys():
-                        if clean_h_name == m_name or clean_h_name in m_name or m_name in clean_h_name:
+                        if clean_h_name == m_name or (len(clean_h_name) >= 3 and clean_h_name in m_name and len(m_name) >= len(clean_h_name)):
                             matched_name = m_name
                             break
                     clean_h_name = matched_name
