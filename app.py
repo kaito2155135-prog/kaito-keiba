@@ -162,13 +162,22 @@ with tab2:
     for i in range(res_num_horses):
         u_num = i + 1
         with st.expander(f"馬番 {u_num} の結果入力", expanded=False):
-            r_name = st.text_input("馬名", f"馬番{u_num}", key=f"r_name_{i}")
-            r_rank = st.number_input("確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
-            r_odds = st.number_input("単勝オッズ", value=10.0, min_value=0.0, key=f"r_odds_{i}")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                r_name = st.text_input("馬名", f"馬番{u_num}", key=f"r_name_{i}")
+                r_rank = st.number_input("確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
+                r_odds = st.number_input("単勝オッズ", value=10.0, min_value=0.0, step=0.1, key=f"r_odds_{i}")
+                r_pop = st.number_input("人気順", value=u_num, min_value=1, step=1, key=f"r_pop_{i}")
+            with col_b:
+                r_jockey = st.text_input("騎手名", "不明", key=f"r_jockey_{i}")
+                r_weight = st.number_input("斤量", value=56.0, step=0.5, key=f"r_weight_{i}")
+                r_sire = st.text_input("父馬名", "不明", key=f"r_sire_{i}")
+                r_age = st.number_input("年齢", min_value=2, max_value=15, value=4, key=f"r_age_{i}")
+
             new_data_list.append({
                 'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
-                'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': r_name, 'sex': '牡', 'age': 4,
-                'jockey': '不明', 'sire': '不明', 'weight': 56.0, 'rank': r_rank, 'odds': r_odds, 'popularity': u_num
+                'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': r_name, 'sex': '牡', 'age': r_age,
+                'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight, 'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': 0
             })
 
     if st.button("🚀 追加データをマスターに保存する！"):
@@ -189,11 +198,22 @@ with tab3:
                 if len(df_train) > 50000: df_train = df_train.sample(n=50000, random_state=42)
                
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
+               
+                if 'jockey' in df_train.columns and 'rank' in df_train.columns:
+                    jockey_stats_train = df_train.groupby('jockey').agg(
+                        total=('rank', 'count'),
+                        wins=('rank', lambda x: (x == 1).sum())
+                    )
+                    train_rates = {j: row['wins'] / row['total'] for j, row in jockey_stats_train.iterrows() if row['total'] > 0}
+                    df_train['jockey_win_rate'] = df_train['jockey'].map(train_rates).fillna(0.08)
+                else:
+                    df_train['jockey_win_rate'] = 0.08
+
                 for col in ['place', 'track', 'condition', 'sire']:
                     if col in df_train.columns:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
                
-                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'place', 'track', 'condition', 'sire', 'blinker']
+                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker']
                 for f in features:
                     if f not in df_train.columns: df_train[f] = 0
                
