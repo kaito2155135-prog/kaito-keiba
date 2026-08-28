@@ -3,10 +3,15 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import warnings
+from sklearn.exceptions import InconsistentVersionWarning
 from sklearn.preprocessing import LabelEncoder
 
-st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("テキスト解析の完全防衛エンジン稼働中！✨🔥")
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+
+st.title("🐎【Part2直近データ集中版】スマホで育てる！競馬AIマスターアプリ")
+st.write("2024年以降の直近データ特化エンジン稼働中！✨🔥")
 
 def load_model():
     try:
@@ -18,33 +23,41 @@ def load_model():
 
 model = load_model()
 
-# 分割されたマスターデータの自動合体＆安全な列名変換
-df_m_auto = pd.DataFrame()
-dfs = []
-for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
-    if os.path.exists(filename):
-        for enc in ['cp932', 'utf-8-sig', 'utf-8']:
-            try:
-                temp_df = pd.read_csv(filename, encoding=enc, low_memory=False)
-                if not temp_df.empty:
-                    dfs.append(temp_df)
-                    break
-            except Exception:
-                continue
+# Part2（2024年以降の直近データ）のみを狙い撃ちして最大1万行まで安全かつリッチに読み込む
+@st.cache_data
+def load_part2_master_data():
+    filename = 'keiba_master_data_part2.csv'
+    if not os.path.exists(filename):
+        # 万が一Part2がない場合のバックアップとしてPart1や通常ファイルを探す
+        for alt in ['keiba_master_data.csv', 'keiba_master_data_part1.csv']:
+            if os.path.exists(alt):
+                filename = alt
+                break
+        else:
+            return pd.DataFrame()
 
-if dfs:
-    df_m_auto = pd.concat(dfs, ignore_index=True)
-    df_m_auto.columns = [str(c).strip() for c in df_m_auto.columns]
-   
-    col_mapping = {}
-    for c in df_m_auto.columns:
-        clean_c = c.replace(" ", "").replace("　", "")
-        if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
-        elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
-        elif clean_c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
-        elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-        elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
-    df_m_auto = df_m_auto.rename(columns=col_mapping)
+    for enc in ['cp932', 'utf-8-sig', 'utf-8']:
+        try:
+            # 直近データをしっかり網羅するため最大10000行まで読み込む
+            df_m = pd.read_csv(filename, encoding=enc, low_memory=False, nrows=10000)
+            if not df_m.empty:
+                df_m.columns = [str(c).strip() for c in df_m.columns]
+               
+                col_mapping = {}
+                for c in df_m.columns:
+                    clean_c = c.replace(" ", "").replace("　", "")
+                    if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
+                    elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
+                    elif clean_c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
+                    elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
+                    elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
+                df_m = df_m.rename(columns=col_mapping)
+                return df_m
+        except Exception:
+            continue
+    return pd.DataFrame()
+
+df_m_auto = load_part2_master_data()
 
 if not df_m_auto.empty:
     if 'name' in df_m_auto.columns:
@@ -87,14 +100,12 @@ if not df_m_auto.empty and 'time' in df_m_auto.columns:
 else:
     df_m_auto['time_sec'] = 0.0
 
-# 騎手勝率の集計
 jockey_win_rates = {}
 if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto.columns:
     j_stats = df_m_auto.groupby('jockey').agg(total=('rank', 'count'), wins=('rank', lambda x: (x == 1).sum()))
     for j, row in j_stats.iterrows():
         if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
 
-# 馬ごとの過去実績辞書を作成
 horse_history_features = {}
 if not df_m_auto.empty and 'name' in df_m_auto.columns:
     h_grouped = df_m_auto.groupby('name').agg(
@@ -114,7 +125,7 @@ if not df_m_auto.empty and 'name' in df_m_auto.columns:
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（過去データ動的紐づけ版）")
+    st.subheader("🚀 勝ち馬のガチ予測（2024年以降の直近データ連動版）")
    
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -211,7 +222,7 @@ with tab1:
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
-        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うちマスター一致: **{matched_count}頭** / マスター総行数: {len(df_m_auto):,})")
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭** / Part2読込行数: {len(df_m_auto):,})")
 
     if st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
@@ -245,7 +256,7 @@ with tab1:
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（過去データ反映版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（直近データ反映版）")
        
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
@@ -257,10 +268,10 @@ with tab1:
             h_odds = row.get('odds', 10.0)
             h_jockey = row.get('jockey', '不明')
            
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 過去平均着順: {h_avg:.1f}着 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
-    st.subheader("📝 レース結果をマスターに追加する")
+    st.subheader("📝 レース結果をPart2マスターに追加する")
     col_d1, col_d2, col_d3 = st.columns(3)
     with col_d1: r_year = st.number_input("年", min_value=2000, max_value=2030, value=2026, key="r_year")
     with col_d2: r_month = st.number_input("月", min_value=1, max_value=12, value=6, key="r_month")
@@ -308,24 +319,24 @@ with tab2:
                 'time': r_time, 'time_sec': parse_time_to_sec(r_time)
             })
 
-    if st.button("🚀 追加データをマスターに保存する！"):
+    if st.button("🚀 追加データをPart2マスターに保存する！"):
         df_new = pd.DataFrame(new_data_list)
         df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
-        df_combined.to_csv('keiba_master_data_part1.csv', index=False, encoding='cp932')
+        df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
         st.balloons()
-        st.success("🎉 日時・クラス・走破タイムを含めてマスターに保存されました！")
+        st.success("🎉 追加データがPart2マスターに保存されました！")
 
 with tab3:
     st.subheader("🧠 ガチAIを再学習させる")
     if not df_m_auto.empty:
-        st.success(f"📂 マスターデータ行数: **{len(df_m_auto):,} 行** (正常に読み込み成功！)")
-        if st.button("🚀 フルデータでAIを再学習・アップデートする！"):
+        st.success(f"📂 Part2マスターデータ読み込み成功！ (読込行数: {len(df_m_auto):,})")
+        if st.button("🚀 AIを再学習・アップデートする！"):
             try:
                 import lightgbm as lgb
                 df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
                 if 'rank' not in df_train.columns:
                     df_train['rank'] = 1
-                if len(df_train) > 50000: df_train = df_train.sample(n=50000, random_state=42)
+                if len(df_train) > 5000: df_train = df_train.sample(n=5000, random_state=42)
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
                
                 for col in ['place', 'track', 'condition', 'sire', 'race_class']:
@@ -342,8 +353,8 @@ with tab3:
                 clf.fit(X, y)
                 joblib.dump(clf, 'keiba_ai_model.pkl')
                 st.balloons()
-                st.success("🎉 再学習完了！モデルが正常にアップデートされました！")
+                st.success("🎉 再学習完了！直近データでモデルがアップデートされました！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
-        st.warning("⚠️ マスターデータが見つかりません。")
+        st.warning("⚠️ Part2マスターデータが見つかりません。")
