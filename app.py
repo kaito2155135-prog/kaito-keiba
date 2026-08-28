@@ -216,13 +216,13 @@ with tab1:
                      block_lines.append(lines[j])
                      j += 1
 
-                 # 各行を精査して、馬名として有効なものを確実に拾う
-                 for idx_b, bl in enumerate(block_lines):
-                     if idx_b == 1:
-                         clean_b = bl.replace("--", "").strip()
-                         if clean_b and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ"]):
-                             h_name = clean_b
+                 # 【修正】netkeibaの形式（馬番の次行に馬名が来る）を確実に取得する
+                 if len(block_lines) > 0:
+                     candidate = block_lines[0].replace("--", "").strip()
+                     if candidate and not any(kw in candidate for kw in ["人気", "データベース", "牡", "牝", "セ", "kg"]):
+                         h_name = candidate
 
+                 for idx_b, bl in enumerate(block_lines):
                      if "データベース" in bl:
                          parts = bl.split("のデータベース")
                          if len(parts) > 0:
@@ -234,7 +234,8 @@ with tab1:
                                      if left_part and left_part[0].isdigit():
                                          age = int(left_part[0])
                                          left_part = left_part[1:].lstrip()
-                             if left_part:
+                             # もし最初の行で馬名が取れていない場合のフォールバックとしてデータベース左側を使う
+                             if left_part and h_name.startswith("馬番"):
                                  h_name = left_part
 
                          if len(parts) > 1:
@@ -273,21 +274,17 @@ with tab1:
                              pass
 
                  clean_h_name = h_name.strip()
-                 norm_input_name = clean_h_name.replace(" ", "").replace("　", "")
 
-                 # マスターデータのキーと柔軟に照合する（部分一致・完全一致・空白除去一致）
                  matched_name = clean_h_name
                  for m_name in horse_history_features.keys():
-                     norm_m_name = str(m_name).replace(" ", "").replace("　", "")
-                     if norm_input_name == norm_m_name or norm_input_name in norm_m_name or norm_m_name in norm_input_name:
+                     if clean_h_name == m_name or clean_h_name in m_name or m_name in clean_h_name or clean_h_name.replace(" ", "") == m_name.replace(" ", ""):
                          matched_name = m_name
                          break
                  clean_h_name = matched_name
 
                  matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0, 'sex': sex}
                  for m_name, hist in horse_history_features.items():
-                     norm_m_name = str(m_name).replace(" ", "").replace("　", "")
-                     if clean_h_name == m_name or norm_input_name == norm_m_name or norm_input_name in norm_m_name or norm_m_name in norm_input_name:
+                     if clean_h_name == m_name or clean_h_name in m_name or m_name in clean_h_name or clean_h_name.replace(" ", "") == m_name.replace(" ", ""):
                          matched_hist = hist.copy()
                          break
 
