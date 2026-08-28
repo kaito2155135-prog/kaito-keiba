@@ -38,7 +38,8 @@ def load_part2_master_data():
        try:
            target_cols = ['year', 'month', 'day', 'place', 'track', 'distance', 'condition',
                           'race_class', 'waku', 'umaban', 'name', 'sex', 'age', 'jockey',
-                          'sire', 'weight', 'rank', 'odds', 'popularity', 'blinker', 'corner', 'time', 'last_3f']
+                          'sire', 'weight', 'rank', 'odds', 'popularity', 'blinker', 'corner', 'time', 'last_3f',
+                          '通過順1', '通過順2', '通過順3', '通過順4']
 
            header_df = pd.read_csv(filename, encoding=enc, nrows=5)
            header_cols = [c.strip() for c in header_df.columns]
@@ -124,7 +125,10 @@ if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto
    for j, row in j_stats.iterrows():
        if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
 
+# 馬ごとの「全成績」に加えて「距離別（±200m以内）の成績」を保持できるように進化させる！
 horse_history_features = {}
+horse_distance_features = {}
+
 if not df_m_auto.empty and 'name' in df_m_auto.columns:
    h_grouped = df_m_auto.groupby('name').agg(
        avg_rank=('rank', 'mean'),
@@ -134,13 +138,31 @@ if not df_m_auto.empty and 'name' in df_m_auto.columns:
        race_count=('rank', 'count')
    )
    for h_name, row in h_grouped.iterrows():
-       horse_history_features[str(h_name).strip()] = {
+       clean_name = str(h_name).strip()
+       horse_history_features[clean_name] = {
            'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
            'best_rank': row['best_rank'] if not np.isnan(row['best_rank']) else 5.0,
            'avg_time': row['avg_time'] if not np.isnan(row['avg_time']) else 0.0,
            'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
            'race_count': row['race_count']
        }
+
+   # 距離別のグループ集計（馬名 × 距離 ごとの平均）
+   if 'distance' in df_m_auto.columns:
+       d_grouped = df_m_auto.groupby(['name', 'distance']).agg(
+           avg_rank=('rank', 'mean'),
+           avg_last_3f=('last_3f', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 35.0),
+           race_count=('rank', 'count')
+       )
+       for (h_name, dist), row in d_grouped.iterrows():
+           clean_name = str(h_name).strip()
+           if clean_name not in horse_distance_features:
+               horse_distance_features[clean_name] = {}
+           horse_distance_features[clean_name][float(dist)] = {
+               'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
+               'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
+               'race_count': row['race_count']
+           }
 
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
@@ -208,13 +230,26 @@ with tab1:
                                if len(bl) >= 2 and not any(c.isdigit() for c in bl) and not any(kw in bl for kw in ["人気", "厩舎", "データベース", "馬体重", "調教", "メモ", "iPhoneから"]):
                                    if jockey == "不明": jockey = bl
 
-                   matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0}
                    clean_h_name = h_name.replace("外", "").replace("地", "").strip()
 
+                   # 🌟 選択された距離（p_distance）での実績があればそれを優先、なければ全体平均を使う
+                   matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0}
+                  
                    for m_name, hist in horse_history_features.items():
                        if clean_h_name in m_name or m_name in clean_h_name:
-                           matched_hist = hist
+                           matched_hist = hist.copy()
                            break
+
+                   if clean_h_name in horse_distance_features:
+                       d_dict = horse_distance_features[clean_h_name]
+                       if float(p_distance) in d_dict:
+                           matched_hist['avg_rank'] = d_dict[float(p_distance)]['avg_rank']
+                           matched_hist['avg_last_3f'] = d_dict[float(p_distance)]['avg_last_3f']
+                       else:
+                           closest_dist = min(d_dict.keys(), key=lambda x: abs(x - float(p_distance)))
+                           if abs(closest_dist - float(p_distance)) <= 400:
+                               matched_hist['avg_rank'] = d_dict[closest_dist]['avg_rank']
+                               matched_hist['avg_last_3f'] = d_dict[closest_dist]['avg_last_3f']
 
                    input_data_list.append({
                        'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
@@ -334,6 +369,13 @@ with tab2:
                r_time = st.text_input("走破タイム (例: 1:45.2)", "2:00.0", key=f"r_time_{i}")
                r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
+           # 🌟 通過順（例: "5-5-4-3"）をハイフンで分割して「通過順1」〜「通過順4」に割り振る処理
+           c_parts = [c.strip() for c in str(r_corner).split('-')]
+           c1 = c_parts[0] if len(c_parts) > 0 else ""
+           c2 = c_parts[1] if len(c_parts) > 1 else ""
+           c3 = c_parts[2] if len(c_parts) > 2 else ""
+           c4 = c_parts[3] if len(c_parts) > 3 else ""
+
            new_data_list.append({
                'year': r_year, 'month': r_month, 'day': r_day,
                'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
@@ -341,6 +383,7 @@ with tab2:
                'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
                'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
                'corner': r_corner, 'corner_4th': parse_corner_position(r_corner),
+               '通過順1': c1, '通過順2': c2, '通過順3': c3, '通過順4': c4,
                'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
            })
 
@@ -349,7 +392,7 @@ with tab2:
        df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
        df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
        st.balloons()
-       st.success("🎉 上がり3Fデータを含む追加結果がPart2マスターに保存されました！")
+       st.success("🎉 通過順1〜4の分解データ及び上がり3Fデータを含む結果がPart2マスターに保存されました！")
 
 with tab3:
    st.subheader("🧠 ガチAIを再学習させる")
