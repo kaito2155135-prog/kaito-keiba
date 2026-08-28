@@ -3,15 +3,10 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
-import warnings
-from sklearn.exceptions import InconsistentVersionWarning
+from sklearn.preprocessing import LabelEncoder
 
-# バージョン警告が画面を落とすのを完全にブロック
-warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
-warnings.filterwarnings("ignore", category=UserWarning)
-
-st.title("🐎【完全防衛・メモリエコ版】スマホで育てる！競馬AIマスターアプリ")
-st.write("警告ブロック＆メモリ最適化エンジン稼働中！✨🔥")
+st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
+st.write("テキスト解析の完全防衛エンジン稼働中！✨🔥")
 
 def load_model():
     try:
@@ -23,38 +18,33 @@ def load_model():
 
 model = load_model()
 
-# メモリ爆発を防ぎつつ両方のファイルから安全にデータを読み込む関数（警告・型エラー完全対策）
-@st.cache_data
-def load_all_master_data():
-    dfs = []
-    for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
-        if os.path.exists(filename):
-            for enc in ['cp932', 'utf-8-sig', 'utf-8']:
-                try:
-                    # 安全のためnrowsで各ファイル最大2万行までに絞って確実にメモリ内に収める
-                    temp_df = pd.read_csv(filename, encoding=enc, low_memory=False, nrows=20000)
-                    if not temp_df.empty:
-                        dfs.append(temp_df)
-                        break
-                except Exception:
-                    continue
-    if dfs:
-        df_m = pd.concat(dfs, ignore_index=True)
-        df_m.columns = [str(c).strip() for c in df_m.columns]
-       
-        col_mapping = {}
-        for c in df_m.columns:
-            clean_c = c.replace(" ", "").replace("　", "")
-            if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
-            elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
-            elif clean_c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
-            elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-            elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
-        df_m = df_m.rename(columns=col_mapping)
-        return df_m
-    return pd.DataFrame()
+# 分割されたマスターデータの自動合体＆安全な列名変換
+df_m_auto = pd.DataFrame()
+dfs = []
+for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
+    if os.path.exists(filename):
+        for enc in ['cp932', 'utf-8-sig', 'utf-8']:
+            try:
+                temp_df = pd.read_csv(filename, encoding=enc, low_memory=False)
+                if not temp_df.empty:
+                    dfs.append(temp_df)
+                    break
+            except Exception:
+                continue
 
-df_m_auto = load_all_master_data()
+if dfs:
+    df_m_auto = pd.concat(dfs, ignore_index=True)
+    df_m_auto.columns = [str(c).strip() for c in df_m_auto.columns]
+   
+    col_mapping = {}
+    for c in df_m_auto.columns:
+        clean_c = c.replace(" ", "").replace("　", "")
+        if clean_c in ['馬名', 'horsename', 'H_Name']: col_mapping[c] = 'name'
+        elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
+        elif clean_c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
+        elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
+        elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
+    df_m_auto = df_m_auto.rename(columns=col_mapping)
 
 if not df_m_auto.empty:
     if 'name' in df_m_auto.columns:
@@ -221,7 +211,7 @@ with tab1:
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
-        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うちマスター一致: **{matched_count}頭** / マスター読込行数: {len(df_m_auto):,})")
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うちマスター一致: **{matched_count}頭** / マスター総行数: {len(df_m_auto):,})")
 
     if st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
@@ -323,19 +313,19 @@ with tab2:
         df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
         df_combined.to_csv('keiba_master_data_part1.csv', index=False, encoding='cp932')
         st.balloons()
-        st.success("🎉 追加データがマスターに保存されました！")
+        st.success("🎉 日時・クラス・走破タイムを含めてマスターに保存されました！")
 
 with tab3:
     st.subheader("🧠 ガチAIを再学習させる")
     if not df_m_auto.empty:
-        st.success(f"📂 マスターデータ読み込み成功！ (読込行数: {len(df_m_auto):,})")
-        if st.button("🚀 AIを再学習・アップデートする！"):
+        st.success(f"📂 マスターデータ行数: **{len(df_m_auto):,} 行** (正常に読み込み成功！)")
+        if st.button("🚀 フルデータでAIを再学習・アップデートする！"):
             try:
                 import lightgbm as lgb
                 df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
                 if 'rank' not in df_train.columns:
                     df_train['rank'] = 1
-                if len(df_train) > 15000: df_train = df_train.sample(n=15000, random_state=42)
+                if len(df_train) > 50000: df_train = df_train.sample(n=50000, random_state=42)
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
                
                 for col in ['place', 'track', 'condition', 'sire', 'race_class']:
