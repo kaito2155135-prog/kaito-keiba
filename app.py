@@ -3,10 +3,15 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
-from sklearn.preprocessing import LabelEncoder
+import warnings
+from sklearn.exceptions import InconsistentVersionWarning
+
+# バージョン警告が画面を落とすのを完全にブロック
+warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
 
 st.title("🐎【完全防衛・メモリエコ版】スマホで育てる！競馬AIマスターアプリ")
-st.write("両方データを完全活用のメモリ圧縮エンジン稼働中！✨🔥")
+st.write("警告ブロック＆メモリ最適化エンジン稼働中！✨🔥")
 
 def load_model():
     try:
@@ -18,29 +23,17 @@ def load_model():
 
 model = load_model()
 
-# メモリ爆発を防ぎつつ両方のファイルからデータを安全に読み込む関数
+# メモリ爆発を防ぎつつ両方のファイルから安全にデータを読み込む関数（警告・型エラー完全対策）
 @st.cache_data
 def load_all_master_data():
     dfs = []
-    # 両方のファイルを網羅的にチェックして読み込む
     for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
         if os.path.exists(filename):
             for enc in ['cp932', 'utf-8-sig', 'utf-8']:
                 try:
-                    # chunksizeを使ってメモリを圧迫せずに安全に読み込む
-                    chunk_list = []
-                    for chunk in pd.read_csv(filename, encoding=enc, low_memory=False, chunksize=10000):
-                        # メモリ節約のため数値型を軽量化
-                        for col in chunk.select_dtypes(include=['int64']).columns:
-                            chunk[col] = pd.to_numeric(chunk[col], downcast='integer')
-                        for col in chunk.select_dtypes(include=['float64']).columns:
-                            chunk[col] = pd.to_numeric(chunk[col], downcast='float')
-                        chunk_list.append(chunk)
-                        # 各ファイル最大3万行までに抑えてメモリ制限を確実に回避
-                        if sum(len(c) for c in chunk_list) >= 30000:
-                            break
-                    if chunk_list:
-                        temp_df = pd.concat(chunk_list, ignore_index=True)
+                    # 安全のためnrowsで各ファイル最大2万行までに絞って確実にメモリ内に収める
+                    temp_df = pd.read_csv(filename, encoding=enc, low_memory=False, nrows=20000)
+                    if not temp_df.empty:
                         dfs.append(temp_df)
                         break
                 except Exception:
@@ -335,14 +328,14 @@ with tab2:
 with tab3:
     st.subheader("🧠 ガチAIを再学習させる")
     if not df_m_auto.empty:
-        st.success(f"📂 マスターデータ読み込み成功！ (行数: {len(df_m_auto):,})")
+        st.success(f"📂 マスターデータ読み込み成功！ (読込行数: {len(df_m_auto):,})")
         if st.button("🚀 AIを再学習・アップデートする！"):
             try:
                 import lightgbm as lgb
                 df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
                 if 'rank' not in df_train.columns:
                     df_train['rank'] = 1
-                if len(df_train) > 20000: df_train = df_train.sample(n=20000, random_state=42)
+                if len(df_train) > 15000: df_train = df_train.sample(n=15000, random_state=42)
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
                
                 for col in ['place', 'track', 'condition', 'sire', 'race_class']:
