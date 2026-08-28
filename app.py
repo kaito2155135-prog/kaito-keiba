@@ -31,6 +31,11 @@ for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', '
 
 if dfs:
     df_m_auto = pd.concat(dfs, ignore_index=True)
+    # カラム名に日本語が含まれている場合などのために揺れを吸収
+    df_m_auto.columns = [str(c).strip() for c in df_m_auto.columns]
+    for col_candidate in ['着順', '順位', 'Rank', 'RANK']:
+        if col_candidate in df_m_auto.columns and 'rank' not in df_m_auto.columns:
+            df_m_auto['rank'] = df_m_auto[col_candidate]
 
 jockey_win_rates = {}
 if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto.columns:
@@ -59,7 +64,6 @@ with tab1:
 
     st.markdown("---")
     st.markdown("### 📋 出馬表テキストの一発ペースト")
-    st.info("💡 **使い方**: netkeibaの出馬表からテキストをコピーして下に貼り付けてな！馬番を自動認識するで。")
     raw_text = st.text_area("ここにnetkeibaの出馬表をペースト", height=150, key="raw_text_input")
 
     input_data_list = []
@@ -201,6 +205,16 @@ with tab3:
             try:
                 import lightgbm as lgb
                 df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
+               
+                # 'rank' カラムがどうしても無い場合の安全なフォールバック
+                if 'rank' not in df_train.columns:
+                    for col in df_train.columns:
+                        if '順' in str(col) or '着' in str(col):
+                            df_train['rank'] = df_train[col]
+                            break
+                    if 'rank' not in df_train.columns:
+                        df_train['rank'] = 1 # 万が一見つからなければ1番手とする
+               
                 if len(df_train) > 50000: df_train = df_train.sample(n=50000, random_state=42)
                
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
