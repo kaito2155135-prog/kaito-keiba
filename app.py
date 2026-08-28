@@ -19,7 +19,7 @@ def load_model():
 
 model = load_model()
 
-# 分割されたマスターデータ（part1 & part2）を自動で合体して読み込む
+# 分割されたマスターデータの自動合体
 df_m_auto = pd.DataFrame()
 dfs = []
 for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
@@ -37,7 +37,6 @@ if dfs:
         if col_candidate in df_m_auto.columns and 'rank' not in df_m_auto.columns:
             df_m_auto['rank'] = df_m_auto[col_candidate]
 
-# 通過順から4角の順位を抽出
 def parse_corner_position(val):
     try:
         s = str(val).strip()
@@ -55,7 +54,6 @@ if not df_m_auto.empty and 'corner' in df_m_auto.columns:
 else:
     df_m_auto['corner_4th'] = 8.0
 
-# 走破タイム（秒）に変換する関数
 def parse_time_to_sec(val):
     try:
         s = str(val).strip()
@@ -120,30 +118,36 @@ with tab1:
                 waku = min(8, max(1, ((umaban - 1) // 2) + 1))
                 h_name = f"馬番{umaban}"
                 odds = 10.0
+                popularity = umaban
                 jockey = "不明"
                 weight = 56.0
+                age = 4
                
-                for j in range(i+1, min(i+6, len(cleaned_lines))):
+                for j in range(i+1, min(i+7, len(cleaned_lines))):
                     sub_line = cleaned_lines[j]
                     if "データベース" in sub_line:
                         h_name = sub_line.replace("のデータベース", "").strip()
                     elif any(s in sub_line for s in ["牡", "牝", "セ"]) and len(sub_line) <= 5:
-                        pass
-                    elif "人気" in sub_line or "(" in sub_line:
-                        pass
+                        # 年齢や性別の抽出
+                        for char in sub_line:
+                            if char.isdigit():
+                                age = int(char)
                     try:
                         val = float(sub_line)
-                        if 0 < val < 500:
-                            odds = val
+                        if 0.1 <= val < 1000:
+                            if val == int(val) and val <= 18 and popularity == umaban:
+                                popularity = int(val)
+                            else:
+                                odds = val
                     except ValueError:
-                        if len(sub_line) >= 2 and not any(c.isdigit() for c in sub_line) and "人気" not in sub_line:
+                        if len(sub_line) >= 2 and not any(c.isdigit() for c in sub_line) and "人気" not in sub_line and "厩舎" not in sub_line:
                             if jockey == "不明":
                                 jockey = sub_line
 
                 current_horse = {
                     'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
-                    'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': h_name, 'sex': '牡', 'age': 4, 'sire': '不明',
-                    'odds': odds, 'popularity': umaban, 'weight': weight, 'jockey': jockey,
+                    'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': h_name, 'sex': '牡', 'age': age, 'sire': '不明',
+                    'odds': odds, 'popularity': popularity, 'weight': weight, 'jockey': jockey,
                     'jockey_win_rate': jockey_win_rates.get(jockey, 0.08), 'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
                 }
             i += 1
@@ -194,15 +198,14 @@ with tab1:
             st.warning(f"⚠️ エラー: {e}")
 
 with tab2:
-    st.subheader("📝 レース結果をマスターに追加する（日時・クラス・タイム対応）")
-   
+    st.subheader("📝 レース結果をマスターに追加する")
     col_d1, col_d2, col_d3 = st.columns(3)
     with col_d1:
         r_year = st.number_input("年", min_value=2000, max_value=2030, value=2026, key="r_year")
     with col_d2:
         r_month = st.number_input("月", min_value=1, max_value=12, value=6, key="r_month")
     with col_d3:
-        r_day = st.number_input("日", min_value=1, max_value=31, key="r_day")
+        r_day = st.number_input("日", min_value=1, max_value=31, value=1, key="r_day")
 
     col_r1, col_r2, col_r3 = st.columns(3)
     with col_r1:
@@ -301,7 +304,6 @@ with tab3:
                     if col in df_train.columns:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
                
-                # 特徴量を16個に拡張
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec']
                 for f in features:
                     if f not in df_train.columns: df_train[f] = 0
@@ -314,10 +316,8 @@ with tab3:
                 joblib.dump(clf, 'keiba_ai_model.pkl')
                
                 st.balloons()
-                st.success("🎉 再学習完了！クラスや走破タイム、日付まで網羅した最強の相棒AIにバージョンアップしました！")
+                st.success("🎉 再学習完了！モデルが正常にアップデートされました！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
         st.warning("⚠️ マスターデータが見つかりません。ファイル名を確認してください。")
-
-iPhoneから送信
