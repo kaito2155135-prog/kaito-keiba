@@ -18,13 +18,19 @@ def load_model():
 
 model = load_model()
 
-# マスターデータの自動読み込み
+# 分割されたマスターデータ（part1 & part2）を自動で合体して読み込む
 df_m_auto = pd.DataFrame()
-if os.path.exists('keiba_master_data.csv'):
-    try:
-        df_m_auto = pd.read_csv('keiba_master_data.csv', encoding='cp932', low_memory=False)
-    except Exception:
-        df_m_auto = pd.read_csv('keiba_master_data.csv', encoding='utf-8-sig', low_memory=False)
+dfs = []
+for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
+    if os.path.exists(filename):
+        try:
+            temp_df = pd.read_csv(filename, encoding='cp932', low_memory=False)
+        except Exception:
+            temp_df = pd.read_csv(filename, encoding='utf-8-sig', low_memory=False)
+        dfs.append(temp_df)
+
+if dfs:
+    df_m_auto = pd.concat(dfs, ignore_index=True)
 
 jockey_win_rates = {}
 if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto.columns:
@@ -183,14 +189,14 @@ with tab2:
     if st.button("🚀 追加データをマスターに保存する！"):
         df_new = pd.DataFrame(new_data_list)
         df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
-        df_combined.to_csv('keiba_master_data.csv', index=False, encoding='cp932')
+        df_combined.to_csv('keiba_master_data_part1.csv', index=False, encoding='cp932')
         st.balloons()
         st.success("🎉 マスターデータに結果が保存されました！")
 
 with tab3:
     st.subheader("🧠 ガチAIを再学習させる")
     if not df_m_auto.empty:
-        st.success(f"📂 マスターデータ行数: **{len(df_m_auto):,} 行**")
+        st.success(f"📂 マスターデータ行数: **{len(df_m_auto):,} 行** (正常に読み込み成功！)")
         if st.button("🚀 フルデータでAIを再学習・アップデートする！"):
             try:
                 import lightgbm as lgb
@@ -223,8 +229,8 @@ with tab3:
                 clf.fit(X, y)
                 joblib.dump(clf, 'keiba_ai_model.pkl')
                 st.balloons()
-                st.success("🎉 再学習が完了しました！")
+                st.success("🎉 再学習が完了しました！これで予測できます！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
-        st.warning("⚠️ マスターデータが見つかりません。")
+        st.warning("⚠️ マスターデータが見つかりません。ファイル名を確認してください。")
