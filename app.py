@@ -6,7 +6,7 @@ import os
 from sklearn.preprocessing import LabelEncoder
 
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("テキストパースのズレを完全解消したガチ予測エンジン！✨🔥")
+st.write("オッズ依存を脱却！マスターデータの過去実績でガチ予測するエンジン発動中！✨🔥")
 
 def load_model():
     try:
@@ -69,16 +69,19 @@ if not df_m_auto.empty and 'time' in df_m_auto.columns:
 else:
     df_m_auto['time_sec'] = 0.0
 
+# 騎手勝率と馬ごとの過去実績（平均着順）の算出
 jockey_win_rates = {}
-if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto.columns:
+horse_past_avg_rank = {}
+if not df_m_auto.empty and 'rank' in df_m_auto.columns:
     df_m_auto['rank'] = pd.to_numeric(df_m_auto['rank'], errors='coerce')
-    jockey_stats = df_m_auto.groupby('jockey').agg(
-        total=('rank', 'count'),
-        wins=('rank', lambda x: (x == 1).sum())
-    )
-    for jock, row in jockey_stats.iterrows():
-        if row['total'] > 0:
-            jockey_win_rates[jock] = row['wins'] / row['total']
+    if 'jockey' in df_m_auto.columns:
+        j_stats = df_m_auto.groupby('jockey').agg(total=('rank', 'count'), wins=('rank', lambda x: (x == 1).sum()))
+        for j, row in j_stats.iterrows():
+            if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
+    if 'name' in df_m_auto.columns:
+        h_stats = df_m_auto.groupby('name').agg(avg_rank=('rank', 'mean'))
+        for h, row in h_stats.iterrows():
+            horse_past_avg_rank[h] = row['avg_rank']
 
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
@@ -105,7 +108,6 @@ with tab1:
         i = 0
         while i < len(lines):
             line = lines[i]
-            # 馬番（1〜18）の検出をトリガーにする
             if line.isdigit() and 1 <= int(line) <= 18:
                 umaban = int(line)
                 waku = min(8, max(1, ((umaban - 1) // 2) + 1))
@@ -117,7 +119,6 @@ with tab1:
                 odds = 10.0
                 popularity = umaban
                
-                # この馬番から次の馬番（または終端）までのブロックを安全に解析
                 block_lines = []
                 j = i + 1
                 while j < len(lines):
@@ -126,40 +127,36 @@ with tab1:
                     block_lines.append(lines[j])
                     j += 1
                
-                # ブロック内の文字列から情報を精緻に取得
                 for bl in block_lines:
                     if "データベース" in bl:
                         h_name = bl.replace("のデータベース", "").strip()
                     elif any(s in bl for s in ["牡", "牝", "セ"]) and len(bl) <= 8:
                         sex = bl[0]
                         for char in bl:
-                            if char.isdigit():
-                                age = int(char)
+                            if char.isdigit(): age = int(char)
                     elif "人気" in bl:
-                        try:
-                            popularity = int(bl.replace("人気", "").strip())
-                        except:
-                            pass
+                        try: popularity = int(bl.replace("人気", "").strip())
+                        except: pass
                     else:
-                        # 数値の判定（オッズや斤量）
                         try:
                             val = float(bl)
                             if 0.1 <= val < 2000:
-                                if val >= 1.0 and val != popularity:
-                                    odds = val
+                                if val >= 1.0 and val != popularity: odds = val
                             elif 45.0 <= val <= 65.0:
                                 weight = val
                         except ValueError:
-                            # 騎手名の特定（余計な文字を含まないもの）
                             if len(bl) >= 2 and not any(c.isdigit() for c in bl) and not any(kw in bl for kw in ["人気", "厩舎", "データベース", "馬体重", "調教", "メモ"]):
-                                if jockey == "不明":
-                                    jockey = bl
+                                if jockey == "不明": jockey = bl
+
+                # 過去マスターデータからこの馬の過去平均着順を引っ張る（なければデフォルト5.0）
+                past_rank_val = horse_past_avg_rank.get(h_name, 5.0)
 
                 input_data_list.append({
                     'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                     'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': h_name, 'sex': sex, 'age': age, 'sire': '不明',
                     'odds': odds, 'popularity': popularity, 'weight': weight, 'jockey': jockey,
-                    'jockey_win_rate': jockey_win_rates.get(jockey, 0.08), 'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
+                    'jockey_win_rate': jockey_win_rates.get(jockey, 0.08), 'past_avg_rank': past_rank_val,
+                    'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
                 })
                 i = j - 1
             i += 1
@@ -170,7 +167,7 @@ with tab1:
             input_data_list.append({
                 'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
-                'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08, 'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
+                'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08, 'past_avg_rank': 5.0, 'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
             })
     else:
         st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を正確に検出しました！")
@@ -180,7 +177,7 @@ with tab1:
         df_input['odds'] = pd.to_numeric(df_input['odds'], errors='coerce').fillna(10.0)
         df_input['popularity'] = pd.to_numeric(df_input['popularity'], errors='coerce').fillna(99)
        
-        # 予測スコアの算出（オッズと人気、さらにモデルをブレンド）
+        # 【重要】オッズだけに頼らず、マスターデータの過去実績・騎手勝率・人気をバランスよくブレンドして予測スコアを算出
         if model is not None:
             try:
                 df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
@@ -192,15 +189,18 @@ with tab1:
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec']
                 for f in features:
                     if f not in df_input_enc.columns: df_input_enc[f] = 0
-                probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
-                probs = probs + (1.0 / np.log1p(df_input['odds'])) * 0.15
-                df_input['win_prob'] = (probs / probs.sum()) * 100
+                model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
+               
+                # AIモデルの予測値に、過去実績（past_avg_rankが低いほど有利）や騎手勝率、オッズを絶妙にミックス
+                score = model_probs * 3.0 + (1.0 / df_input['past_avg_rank']) * 2.0 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+                exp_s = np.exp(score - score.max())
+                df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
             except Exception:
-                score = (1.0 / np.log1p(df_input['odds'])) * 2.0 + (1.0 / np.sqrt(df_input['popularity'])) * 3.0
+                score = (1.0 / df_input['past_avg_rank']) * 3.0 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
                 exp_s = np.exp(score - score.max())
                 df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
         else:
-            score = (1.0 / np.log1p(df_input['odds'])) * 2.0 + (1.0 / np.sqrt(df_input['popularity'])) * 3.0
+            score = (1.0 / df_input['past_avg_rank']) * 3.0 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
             exp_s = np.exp(score - score.max())
             df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
