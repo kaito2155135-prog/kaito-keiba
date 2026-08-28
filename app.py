@@ -9,12 +9,13 @@ from sklearn.preprocessing import LabelEncoder
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
 st.write("過去データ学習・結果追加・テキスト一発ペースト予測のすべてがここに！✨🔥")
 
-@st.cache_resource
 def load_model():
     try:
-        return joblib.load('keiba_ai_model.pkl')
+        if os.path.exists('keiba_ai_model.pkl'):
+            return joblib.load('keiba_ai_model.pkl')
     except Exception as e:
         return None
+    return None
 
 model = load_model()
 
@@ -31,11 +32,46 @@ for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', '
 
 if dfs:
     df_m_auto = pd.concat(dfs, ignore_index=True)
-    # カラム名に日本語が含まれている場合などのために揺れを吸収
     df_m_auto.columns = [str(c).strip() for c in df_m_auto.columns]
     for col_candidate in ['着順', '順位', 'Rank', 'RANK']:
         if col_candidate in df_m_auto.columns and 'rank' not in df_m_auto.columns:
             df_m_auto['rank'] = df_m_auto[col_candidate]
+
+# 通過順から4角の順位を抽出
+def parse_corner_position(val):
+    try:
+        s = str(val).strip()
+        if '-' in s:
+            parts = s.split('-')
+            return float(parts[-1])
+        elif s.isdigit():
+            return float(s)
+    except:
+        pass
+    return 8.0
+
+if not df_m_auto.empty and 'corner' in df_m_auto.columns:
+    df_m_auto['corner_4th'] = df_m_auto['corner'].apply(parse_corner_position)
+else:
+    df_m_auto['corner_4th'] = 8.0
+
+# 走破タイム（秒）に変換する関数
+def parse_time_to_sec(val):
+    try:
+        s = str(val).strip()
+        if ':' in s:
+            m, rest = s.split(':')
+            return float(m) * 60 + float(rest)
+        elif s and s != 'nan':
+            return float(s)
+    except:
+        pass
+    return 0.0
+
+if not df_m_auto.empty and 'time' in df_m_auto.columns:
+    df_m_auto['time_sec'] = df_m_auto['time'].apply(parse_time_to_sec)
+else:
+    df_m_auto['time_sec'] = 0.0
 
 jockey_win_rates = {}
 if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto.columns:
@@ -56,6 +92,7 @@ with tab1:
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
         p_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="p_place")
+        p_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="p_class")
     with col_p2:
         p_track = st.selectbox("トラック", ["芝", "ダート", "障害"], key="p_track")
         p_distance = st.number_input("距離 (m)", value=2000, step=100, key="p_distance")
@@ -105,9 +142,9 @@ with tab1:
 
                 current_horse = {
                     'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
-                    'waku': waku, 'umaban': umaban, 'name': h_name, 'sex': '牡', 'age': 4, 'sire': '不明',
+                    'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': h_name, 'sex': '牡', 'age': 4, 'sire': '不明',
                     'odds': odds, 'popularity': umaban, 'weight': weight, 'jockey': jockey,
-                    'jockey_win_rate': jockey_win_rates.get(jockey, 0.08), 'blinker': 0
+                    'jockey_win_rate': jockey_win_rates.get(jockey, 0.08), 'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
                 }
             i += 1
        
@@ -119,26 +156,27 @@ with tab1:
         for i in range(8):
             input_data_list.append({
                 'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
-                'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
-                'odds': 10.0, 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08, 'blinker': 0
+                'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
+                'odds': 10.0, 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08, 'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
             })
     else:
         st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を正確に検出しました！")
 
-    if model is None:
+    current_model = load_model()
+    if current_model is None:
         st.error("⚠️ AIモデルが見つかりません。「AI再学習」タブからモデルを作成してください。")
     elif st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
         df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
         df_full = df_full.loc[:, ~df_full.columns.duplicated()]
 
-        for col in ['place', 'track', 'condition', 'sire']:
+        for col in ['place', 'track', 'condition', 'sire', 'race_class']:
             if col in df_full.columns:
                 le = LabelEncoder()
                 df_full[col] = le.fit_transform(df_full[col].astype(str))
 
         df_input_encoded = df_full.tail(len(df_input)).copy()
-        features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker']
+        features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec']
         for feat in features:
             if feat not in df_input_encoded.columns:
                 df_input_encoded[feat] = 0
@@ -147,7 +185,7 @@ with tab1:
         try:
             st.balloons()
             st.subheader("🎯 ガチAI予測結果ランキング")
-            probs = model.predict_proba(X_pred)[:, 1]
+            probs = current_model.predict_proba(X_pred)[:, 1]
             df_input['win_prob'] = probs * 100
             df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
             for idx, row in df_input.iterrows():
@@ -156,11 +194,20 @@ with tab1:
             st.warning(f"⚠️ エラー: {e}")
 
 with tab2:
-    st.subheader("📝 レース結果をマスターに追加する")
+    st.subheader("📝 レース結果をマスターに追加する（日時・クラス・タイム対応）")
+   
+    col_d1, col_d2, col_d3 = st.columns(3)
+    with col_d1:
+        r_year = st.number_input("年", min_value=2000, max_value=2030, value=2026, key="r_year")
+    with col_d2:
+        r_month = st.number_input("月", min_value=1, max_value=12, value=6, key="r_month")
+    with col_d3:
+        r_day = st.number_input("日", min_value=1, max_value=31, key="r_day")
+
     col_r1, col_r2, col_r3 = st.columns(3)
     with col_r1:
         race_place = st.selectbox("開催場所", ["東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"], key="r_place")
-        race_num = st.number_input("レース番号", min_value=1, max_value=12, value=11, key="r_num")
+        race_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="r_class")
     with col_r2:
         track_type = st.selectbox("トラック", ["芝", "ダート", "障害"], key="r_track")
         distance = st.number_input("距離 (m)", value=2000, step=100, key="r_distance")
@@ -178,16 +225,25 @@ with tab2:
                 r_rank = st.number_input("確定着順", min_value=1, max_value=18, value=1, key=f"r_rank_{i}")
                 r_odds = st.number_input("単勝オッズ", value=10.0, min_value=0.0, step=0.1, key=f"r_odds_{i}")
                 r_pop = st.number_input("人気順", value=u_num, min_value=1, step=1, key=f"r_pop_{i}")
+                r_blinker_str = st.selectbox("ブリンカー", ["なし", "B (あり)"], key=f"r_blinker_{i}")
+                r_blinker = 1 if "B" in r_blinker_str else 0
+
             with col_b:
                 r_jockey = st.text_input("騎手名", "不明", key=f"r_jockey_{i}")
                 r_weight = st.number_input("斤量", value=56.0, step=0.5, key=f"r_weight_{i}")
                 r_sire = st.text_input("父馬名", "不明", key=f"r_sire_{i}")
                 r_age = st.number_input("年齢", min_value=2, max_value=15, value=4, key=f"r_age_{i}")
+                r_corner = st.text_input("通過順 (例: 1-1-1-1)", "5-5-4-3", key=f"r_corner_{i}")
+                r_time = st.text_input("走破タイム (例: 1:45.2)", "2:00.0", key=f"r_time_{i}")
 
             new_data_list.append({
+                'year': r_year, 'month': r_month, 'day': r_day,
                 'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
-                'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': r_name, 'sex': '牡', 'age': r_age,
-                'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight, 'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': 0
+                'race_class': race_class, 'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': r_name,
+                'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
+                'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
+                'corner': r_corner, 'corner_4th': parse_corner_position(r_corner),
+                'time': r_time, 'time_sec': parse_time_to_sec(r_time)
             })
 
     if st.button("🚀 追加データをマスターに保存する！"):
@@ -195,7 +251,7 @@ with tab2:
         df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
         df_combined.to_csv('keiba_master_data_part1.csv', index=False, encoding='cp932')
         st.balloons()
-        st.success("🎉 マスターデータに結果が保存されました！")
+        st.success("🎉 日時・クラス・走破タイムを含めてマスターに保存されました！")
 
 with tab3:
     st.subheader("🧠 ガチAIを再学習させる")
@@ -206,15 +262,27 @@ with tab3:
                 import lightgbm as lgb
                 df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
                
-                # 'rank' カラムがどうしても無い場合の安全なフォールバック
                 if 'rank' not in df_train.columns:
                     for col in df_train.columns:
                         if '順' in str(col) or '着' in str(col):
                             df_train['rank'] = df_train[col]
                             break
                     if 'rank' not in df_train.columns:
-                        df_train['rank'] = 1 # 万が一見つからなければ1番手とする
+                        df_train['rank'] = 1
                
+                if 'corner' in df_train.columns and 'corner_4th' not in df_train.columns:
+                    df_train['corner_4th'] = df_train['corner'].apply(parse_corner_position)
+                elif 'corner_4th' not in df_train.columns:
+                    df_train['corner_4th'] = 8.0
+
+                if 'time' in df_train.columns and 'time_sec' not in df_train.columns:
+                    df_train['time_sec'] = df_train['time'].apply(parse_time_to_sec)
+                elif 'time_sec' not in df_train.columns:
+                    df_train['time_sec'] = 0.0
+
+                if 'blinker' not in df_train.columns:
+                    df_train['blinker'] = 0
+
                 if len(df_train) > 50000: df_train = df_train.sample(n=50000, random_state=42)
                
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
@@ -229,11 +297,12 @@ with tab3:
                 else:
                     df_train['jockey_win_rate'] = 0.08
 
-                for col in ['place', 'track', 'condition', 'sire']:
+                for col in ['place', 'track', 'condition', 'sire', 'race_class']:
                     if col in df_train.columns:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
                
-                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker']
+                # 特徴量を16個に拡張
+                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec']
                 for f in features:
                     if f not in df_train.columns: df_train[f] = 0
                
@@ -241,10 +310,14 @@ with tab3:
                 y = df_train['target']
                 clf = lgb.LGBMClassifier(random_state=42)
                 clf.fit(X, y)
+               
                 joblib.dump(clf, 'keiba_ai_model.pkl')
+               
                 st.balloons()
-                st.success("🎉 再学習が完了しました！これで予測できます！")
+                st.success("🎉 再学習完了！クラスや走破タイム、日付まで網羅した最強の相棒AIにバージョンアップしました！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
         st.warning("⚠️ マスターデータが見つかりません。ファイル名を確認してください。")
+
+iPhoneから送信
