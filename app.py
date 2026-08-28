@@ -6,7 +6,7 @@ import os
 from sklearn.preprocessing import LabelEncoder
 
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("馬名マッチングを強力にファジー化！最強予測エンジン稼働中！✨🔥")
+st.write("マスターデータの列名自動補正＆堅牢化エンジン稼働中！✨🔥")
 
 def load_model():
     try:
@@ -18,25 +18,34 @@ def load_model():
 
 model = load_model()
 
-# 分割されたマスターデータの自動合体
+# 分割されたマスターデータの自動合体＆列名の揺れを完全吸収
 df_m_auto = pd.DataFrame()
 dfs = []
 for filename in ['keiba_master_data_part1.csv', 'keiba_master_data_part2.csv', 'keiba_master_data.csv']:
     if os.path.exists(filename):
-        try:
-            temp_df = pd.read_csv(filename, encoding='cp932', low_memory=False)
-        except Exception:
-            temp_df = pd.read_csv(filename, encoding='utf-8-sig', low_memory=False)
-        dfs.append(temp_df)
+        for enc in ['cp932', 'utf-8-sig', 'utf-8']:
+            try:
+                temp_df = pd.read_csv(filename, encoding=enc, low_memory=False)
+                if not temp_df.empty:
+                    dfs.append(temp_df)
+                    break
+            except Exception:
+                continue
 
 if dfs:
     df_m_auto = pd.concat(dfs, ignore_index=True)
     df_m_auto.columns = [str(c).strip() for c in df_m_auto.columns]
-    for col_candidate in ['着順', '順位', 'Rank', 'RANK']:
-        if col_candidate in df_m_auto.columns and 'rank' not in df_m_auto.columns:
-            df_m_auto['rank'] = df_m_auto[col_candidate]
+   
+    # 列名の揺れを強制マッピング
+    col_mapping = {}
+    for c in df_m_auto.columns:
+        if c in ['馬名', 'horse_name', 'H_Name']: col_mapping[c] = 'name'
+        elif c in ['着順', '順位', 'Rank', 'RANK']: col_mapping[c] = 'rank'
+        elif c in ['タイム', 'Time', 'TIME']: col_mapping[c] = 'time'
+        elif c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
+        elif c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
+    df_m_auto = df_m_auto.rename(columns=col_mapping)
 
-# マスターデータの馬名クリーニング（空白や特殊文字を整える）
 if not df_m_auto.empty and 'name' in df_m_auto.columns:
     df_m_auto['name'] = df_m_auto['name'].astype(str).str.strip()
 
@@ -164,7 +173,7 @@ with tab1:
                             if len(bl) >= 2 and not any(c.isdigit() for c in bl) and not any(kw in bl for kw in ["人気", "厩舎", "データベース", "馬体重", "調教", "メモ"]):
                                 if jockey == "不明": jockey = bl
 
-                # 【高精度マッチング】完全一致のほか、部分一致でもマスターからデータを拾う
+                # マッチング処理
                 matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'race_count': 0}
                 clean_h_name = h_name.replace("外", "").replace("地", "").strip()
                
@@ -197,7 +206,7 @@ with tab1:
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
-        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うちマスター一致: **{matched_count}頭**)")
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うちマスター一致: **{matched_count}頭** / マスター総行数: {len(df_m_auto):,})")
 
     if st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
@@ -220,7 +229,8 @@ with tab1:
                 score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
                 exp_s = np.exp(score - score.max())
                 df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
-            except Exception:
+            except Exception as e:
+                st.error(f"予測計算エラー: {e}")
                 score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
                 exp_s = np.exp(score - score.max())
                 df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
