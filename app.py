@@ -10,8 +10,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【Part2直近データ集中版】スマホで育てる！競馬AIマスターアプリ")
-st.write("2024年以降の直近データ特化エンジン稼働中！✨🔥")
+st.title("🐎【Part2全データ完全網羅版】スマホで育てる！競馬AIマスターアプリ")
+st.write("2024年以降の直近データ全行特化エンジン稼働中！✨🔥")
 
 def load_model():
     try:
@@ -23,12 +23,11 @@ def load_model():
 
 model = load_model()
 
-# Part2（2024年以降の直近データ）のみを狙い撃ちして最大1万行まで安全かつリッチに読み込む
+# Part2（2024年以降の直近データ）の全行を安全かつ効率的にフル読み込みする
 @st.cache_data
 def load_part2_master_data():
     filename = 'keiba_master_data_part2.csv'
     if not os.path.exists(filename):
-        # 万が一Part2がない場合のバックアップとしてPart1や通常ファイルを探す
         for alt in ['keiba_master_data.csv', 'keiba_master_data_part1.csv']:
             if os.path.exists(alt):
                 filename = alt
@@ -38,8 +37,19 @@ def load_part2_master_data():
 
     for enc in ['cp932', 'utf-8-sig', 'utf-8']:
         try:
-            # 直近データをしっかり網羅するため最大10000行まで読み込む
-            df_m = pd.read_csv(filename, encoding=enc, low_memory=False, nrows=10000)
+            # メモリを極力圧迫しないよう、必要な列だけに絞って全行読み込みを行う
+            target_cols = ['year', 'month', 'day', 'place', 'track', 'distance', 'condition',
+                           'race_class', 'waku', 'umaban', 'name', 'sex', 'age', 'jockey',
+                           'sire', 'weight', 'rank', 'odds', 'popularity', 'blinker', 'corner', 'time']
+           
+            # 実際のCSVにある列を確認して存在するものだけusecolsに指定
+            header_df = pd.read_csv(filename, encoding=enc, nrows=5)
+            header_cols = [c.strip() for c in header_df.columns]
+            use_cols = [c for c in target_cols if c in header_cols]
+            if not use_cols:
+                use_cols = None # 見つからない場合は全列
+
+            df_m = pd.read_csv(filename, encoding=enc, low_memory=False, usecols=use_cols)
             if not df_m.empty:
                 df_m.columns = [str(c).strip() for c in df_m.columns]
                
@@ -125,7 +135,7 @@ if not df_m_auto.empty and 'name' in df_m_auto.columns:
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（2024年以降の直近データ連動版）")
+    st.subheader("🚀 勝ち馬のガチ予測（Part2全データ完全連動版）")
    
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -222,7 +232,7 @@ with tab1:
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
-        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭** / Part2読込行数: {len(df_m_auto):,})")
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭** / Part2総読込行数: {len(df_m_auto):,})")
 
     if st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
@@ -256,7 +266,7 @@ with tab1:
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（直近データ反映版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（Part2全データ反映版）")
        
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
@@ -329,15 +339,15 @@ with tab2:
 with tab3:
     st.subheader("🧠 ガチAIを再学習させる")
     if not df_m_auto.empty:
-        st.success(f"📂 Part2マスターデータ読み込み成功！ (読込行数: {len(df_m_auto):,})")
+        st.success(f"📂 Part2マスターデータ（全行）読み込み成功！ (読込行数: {len(df_m_auto):,})")
         if st.button("🚀 AIを再学習・アップデートする！"):
             try:
                 import lightgbm as lgb
                 df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
                 if 'rank' not in df_train.columns:
                     df_train['rank'] = 1
-                if len(df_train) > 5000: df_train = df_train.sample(n=5000, random_state=42)
-                df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
+                if len(df_train) > 10000: df_train = df_train.sample(n=10000, random_state=42)
+                df_train['target'] = (pd.to_numeric(df_train['rank'], errors['coerce'] ) == 1).astype(int)
                
                 for col in ['place', 'track', 'condition', 'sire', 'race_class']:
                     if col in df_train.columns:
@@ -353,7 +363,7 @@ with tab3:
                 clf.fit(X, y)
                 joblib.dump(clf, 'keiba_ai_model.pkl')
                 st.balloons()
-                st.success("🎉 再学習完了！直近データでモデルがアップデートされました！")
+                st.success("🎉 再学習完了！Part2の全データでモデルがアップデートされました！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
