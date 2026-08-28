@@ -123,21 +123,26 @@ with tab1:
                 weight = 56.0
                 age = 4
                
-                for j in range(i+1, min(i+7, len(cleaned_lines))):
+                for j in range(i+1, min(i+8, len(cleaned_lines))):
                     sub_line = cleaned_lines[j]
                     if "データベース" in sub_line:
                         h_name = sub_line.replace("のデータベース", "").strip()
-                    elif any(s in sub_line for s in ["牡", "牝", "セ"]) and len(sub_line) <= 5:
-                        # 年齢や性別の抽出
+                    elif any(s in sub_line for s in ["牡", "牝", "セ"]) and len(sub_line) <= 6:
                         for char in sub_line:
                             if char.isdigit():
                                 age = int(char)
+                    elif "人気" in sub_line:
+                        try:
+                            pop_val = int(sub_line.replace("人気", "").strip())
+                            popularity = pop_val
+                        except:
+                            pass
                     try:
                         val = float(sub_line)
-                        if 0.1 <= val < 1000:
+                        if 0.1 <= val < 2000:
                             if val == int(val) and val <= 18 and popularity == umaban:
                                 popularity = int(val)
-                            else:
+                            elif val >= 1.0:
                                 odds = val
                     except ValueError:
                         if len(sub_line) >= 2 and not any(c.isdigit() for c in sub_line) and "人気" not in sub_line and "厩舎" not in sub_line:
