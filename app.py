@@ -40,7 +40,7 @@ if not df_m_auto.empty and 'jockey' in df_m_auto.columns and 'rank' in df_m_auto
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（テキスト一発ペースト対応）")
+    st.subheader("🚀 勝ち馬のガチ予測（スマホ対応テキスト一発ペースト）")
    
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -53,33 +53,56 @@ with tab1:
 
     st.markdown("---")
     st.markdown("### 📋 出馬表テキストの一発ペースト")
-    st.info("💡 **使い方**: netkeibaの出馬表ページからテキストをコピーして下に貼り付けてな！")
-    raw_text = st.text_area("ここにnetkeibaの出馬表をペースト", height=120, key="raw_text_input")
+    st.info("💡 **使い方**: netkeibaの出馬表からテキストをコピーして下に貼り付けてな！馬番を自動認識するで。")
+    raw_text = st.text_area("ここにnetkeibaの出馬表をペースト", height=150, key="raw_text_input")
 
     input_data_list = []
     if raw_text.strip():
         lines = raw_text.strip().split('\n')
-        for idx, line in enumerate(lines):
-            parts = line.split()
-            if len(parts) >= 2:
-                umaban = idx + 1
+        current_horse = None
+        cleaned_lines = [line.strip() for line in lines if line.strip() != ""]
+       
+        i = 0
+        while i < len(cleaned_lines):
+            line = cleaned_lines[i]
+            if line.isdigit() and 1 <= int(line) <= 18:
+                if current_horse:
+                    input_data_list.append(current_horse)
+               
+                umaban = int(line)
                 waku = min(8, max(1, ((umaban - 1) // 2) + 1))
-                h_name = parts[1]
+                h_name = f"馬番{umaban}"
                 odds = 10.0
-                for p in parts:
+                jockey = "不明"
+                weight = 56.0
+               
+                for j in range(i+1, min(i+6, len(cleaned_lines))):
+                    sub_line = cleaned_lines[j]
+                    if "データベース" in sub_line:
+                        h_name = sub_line.replace("のデータベース", "").strip()
+                    elif any(s in sub_line for s in ["牡", "牝", "セ"]) and len(sub_line) <= 5:
+                        pass
+                    elif "人気" in sub_line or "(" in sub_line:
+                        pass
                     try:
-                        val = float(p)
-                        if 0 < val < 500 and '.' in p:
+                        val = float(sub_line)
+                        if 0 < val < 500:
                             odds = val
                     except ValueError:
-                        pass
-               
-                input_data_list.append({
+                        if len(sub_line) >= 2 and not any(c.isdigit() for c in sub_line) and "人気" not in sub_line:
+                            if jockey == "不明":
+                                jockey = sub_line
+
+                current_horse = {
                     'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                     'waku': waku, 'umaban': umaban, 'name': h_name, 'sex': '牡', 'age': 4, 'sire': '不明',
-                    'odds': odds, 'popularity': umaban, 'weight': 56.0, 'jockey': '不明',
-                    'jockey_win_rate': 0.08, 'blinker': 0
-                })
+                    'odds': odds, 'popularity': umaban, 'weight': weight, 'jockey': jockey,
+                    'jockey_win_rate': jockey_win_rates.get(jockey, 0.08), 'blinker': 0
+                }
+            i += 1
+       
+        if current_horse:
+            input_data_list.append(current_horse)
 
     if len(input_data_list) == 0:
         st.warning("⚠️ テキスト未入力のため、手動モードで8頭分のデフォルトを表示しています。")
@@ -90,7 +113,7 @@ with tab1:
                 'odds': 10.0, 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08, 'blinker': 0
             })
     else:
-        st.success(f"✨ テキストから **{len(input_data_list)}頭** を検出しました！")
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を正確に検出しました！")
 
     if model is None:
         st.error("⚠️ AIモデルが見つかりません。「AI再学習」タブからモデルを作成してください。")
@@ -118,7 +141,7 @@ with tab1:
             df_input['win_prob'] = probs * 100
             df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
             for idx, row in df_input.iterrows():
-                st.write(f"**第 {idx+1} 位**: 馬番 {row['umaban']} 🐴 **{row['name']}** (予測勝率: **{row['win_prob']:.2f}%** / オッズ: {row['odds']}倍)")
+                st.write(f"**第 {idx+1} 位**: 馬番 {row['umaban']} 🐴 **{row['name']}** (予測勝率: **{row['win_prob']:.2f}%** / オッズ: {row['odds']}倍 / 騎手: {row['jockey']})")
         except Exception as e:
             st.warning(f"⚠️ エラー: {e}")
 
