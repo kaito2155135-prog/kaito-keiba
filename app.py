@@ -6,7 +6,7 @@ import os
 from sklearn.preprocessing import LabelEncoder
 
 st.title("🐎【完全版】スマホで育てる！競馬AIマスターアプリ")
-st.write("テキストパースと結果入力を完全復活させ、ガチ予測を実現！✨🔥")
+st.write("テキストパースのズレを完全解消したガチ予測エンジン！✨🔥")
 
 def load_model():
     try:
@@ -101,66 +101,71 @@ with tab1:
 
     input_data_list = []
     if raw_text.strip():
-        lines = raw_text.strip().split('\n')
-        current_horse = None
-        cleaned_lines = [line.strip() for line in lines if line.strip() != ""]
-       
+        lines = [line.strip() for line in raw_text.strip().split('\n') if line.strip() != ""]
         i = 0
-        while i < len(cleaned_lines):
-            line = cleaned_lines[i]
+        while i < len(lines):
+            line = lines[i]
+            # 馬番（1〜18）の検出をトリガーにする
             if line.isdigit() and 1 <= int(line) <= 18:
-                if current_horse:
-                    input_data_list.append(current_horse)
-               
                 umaban = int(line)
                 waku = min(8, max(1, ((umaban - 1) // 2) + 1))
                 h_name = f"馬番{umaban}"
-                odds = 10.0
-                popularity = umaban
+                sex = "牡"
+                age = 4
                 jockey = "不明"
                 weight = 56.0
-                age = 4
-                sex = "牡"
+                odds = 10.0
+                popularity = umaban
                
-                # テキストの並びから正確に情報を拾うパース処理
-                for j in range(i+1, min(i+10, len(cleaned_lines))):
-                    sub_line = cleaned_lines[j]
-                    if "データベース" in sub_line:
-                        h_name = sub_line.replace("のデータベース", "").strip()
-                    elif any(s in sub_line for s in ["牡", "牝", "セ"]) and len(sub_line) <= 6:
-                        sex = sub_line[0]
-                        for char in sub_line:
+                # この馬番から次の馬番（または終端）までのブロックを安全に解析
+                block_lines = []
+                j = i + 1
+                while j < len(lines):
+                    if lines[j].isdigit() and 1 <= int(lines[j]) <= 18:
+                        break
+                    block_lines.append(lines[j])
+                    j += 1
+               
+                # ブロック内の文字列から情報を精緻に取得
+                for bl in block_lines:
+                    if "データベース" in bl:
+                        h_name = bl.replace("のデータベース", "").strip()
+                    elif any(s in bl for s in ["牡", "牝", "セ"]) and len(bl) <= 8:
+                        sex = bl[0]
+                        for char in bl:
                             if char.isdigit():
                                 age = int(char)
-                    elif "人気" in sub_line:
+                    elif "人気" in bl:
                         try:
-                            popularity = int(sub_line.replace("人気", "").strip())
+                            popularity = int(bl.replace("人気", "").strip())
                         except:
                             pass
-                    try:
-                        val = float(sub_line)
-                        if 0.1 <= val < 2000:
-                            if val >= 1.0 and odds == 10.0 and val != popularity:
-                                odds = val
-                    except ValueError:
-                        # 騎手名の誤認を防ぐため「データベース」「人気」「厩舎」等を除外
-                        if len(sub_line) >= 2 and not any(c.isdigit() for c in sub_line) and "人気" not in sub_line and "厩舎" not in sub_line and "データベース" not in sub_line:
-                            if jockey == "不明":
-                                jockey = sub_line
+                    else:
+                        # 数値の判定（オッズや斤量）
+                        try:
+                            val = float(bl)
+                            if 0.1 <= val < 2000:
+                                if val >= 1.0 and val != popularity:
+                                    odds = val
+                            elif 45.0 <= val <= 65.0:
+                                weight = val
+                        except ValueError:
+                            # 騎手名の特定（余計な文字を含まないもの）
+                            if len(bl) >= 2 and not any(c.isdigit() for c in bl) and not any(kw in bl for kw in ["人気", "厩舎", "データベース", "馬体重", "調教", "メモ"]):
+                                if jockey == "不明":
+                                    jockey = bl
 
-                current_horse = {
+                input_data_list.append({
                     'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                     'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': h_name, 'sex': sex, 'age': age, 'sire': '不明',
                     'odds': odds, 'popularity': popularity, 'weight': weight, 'jockey': jockey,
                     'jockey_win_rate': jockey_win_rates.get(jockey, 0.08), 'blinker': 0, 'corner_4th': 8.0, 'time_sec': 0.0
-                }
+                })
+                i = j - 1
             i += 1
-       
-        if current_horse:
-            input_data_list.append(current_horse)
 
     if len(input_data_list) == 0:
-        st.warning("⚠️ テキスト未入力のため、手動モードで8頭分のデフォルトを表示しています。")
+        st.warning("⚠️ テキスト未入力のため、デフォルトの8頭で表示しています。")
         for i in range(8):
             input_data_list.append({
                 'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
@@ -175,7 +180,7 @@ with tab1:
         df_input['odds'] = pd.to_numeric(df_input['odds'], errors='coerce').fillna(10.0)
         df_input['popularity'] = pd.to_numeric(df_input['popularity'], errors='coerce').fillna(99)
        
-        # 機械学習モデルがある場合はモデルで予測、ない場合はオッズ・人気ベースのガチスコアで算出
+        # 予測スコアの算出（オッズと人気、さらにモデルをブレンド）
         if model is not None:
             try:
                 df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
@@ -188,8 +193,7 @@ with tab1:
                 for f in features:
                     if f not in df_input_enc.columns: df_input_enc[f] = 0
                 probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
-                # 確率が完全に潰れるのを防ぐための補正
-                probs = probs + (1.0 / np.log1p(df_input['odds'])) * 0.1
+                probs = probs + (1.0 / np.log1p(df_input['odds'])) * 0.15
                 df_input['win_prob'] = (probs / probs.sum()) * 100
             except Exception:
                 score = (1.0 / np.log1p(df_input['odds'])) * 2.0 + (1.0 / np.sqrt(df_input['popularity'])) * 3.0
@@ -204,7 +208,7 @@ with tab1:
         st.balloons()
         st.subheader("🎯 ガチAI予測結果ランキング")
         for idx, row in df_input.iterrows():
-            st.write(f"**第 {idx+1} 位**: 馬番 {row['umaban']} 🐴 牝{row['age']} **{row['name']}** (予測勝率: **{row['win_prob']:.2f}%** / オッズ: {row['odds']}倍 / 騎手: {row['jockey']})")
+            st.write(f"**第 {idx+1} 位**: 馬番 {row['umaban']} 🐴 {row['sex']}{row['age']} **{row['name']}** (予測勝率: **{row['win_prob']:.2f}%** / オッズ: {row['odds']}倍 / 騎手: {row['jockey']})")
 
 with tab2:
     st.subheader("📝 レース結果をマスターに追加する")
