@@ -228,7 +228,7 @@ with tab1:
                         block_lines.append(lines[j])
                         j += 1
 
-                    # 馬名の正確な抽出（マスターデータの完全一致を最優先し、途切れた名前で上書きさせない）
+                    # 馬名の正確な抽出（マスターデータの完全一致を最優先。部分一致による誤爆・すり替わりを完全に防止）
                     for bl in block_lines:
                         clean_bl = clean_str(bl)
                         if clean_bl in horse_history_features:
@@ -254,7 +254,6 @@ with tab1:
                                         if left_part and left_part[0].isdigit():
                                             age = int(left_part[0])
                                             left_part = left_part[1:].lstrip()
-                                # データベース行の左側から取得できる名前が長くて妥当な場合のみ採用（短い名前で上書きするバグを防止）
                                 if left_part and (h_name.startswith("馬番") or len(left_part) > len(h_name)):
                                     h_name = left_part
 
@@ -295,13 +294,15 @@ with tab1:
 
                     clean_h_name = clean_str(h_name)
 
-                    # マスターデータとのマッチング（長い正しい名前を優先し、短い部分一致での誤爆を防止）
-                    matched_name = clean_h_name
-                    for m_name in horse_history_features.keys():
-                        if clean_h_name == m_name or (len(clean_h_name) >= 3 and clean_h_name in m_name and len(m_name) >= len(clean_h_name)):
-                            matched_name = m_name
-                            break
-                    clean_h_name = matched_name
+                    # 【修正ポイント】完全一致のみ、またはテキストで取得した馬名がマスター側にそのまま存在する場合のみ採用する（部分一致による別馬へのすり替わりを禁止）
+                    if clean_h_name not in horse_history_features:
+                        matched_name = clean_h_name
+                        for m_name in horse_history_features.keys():
+                            # 余計な部分一致（例: 「ラピス」が「セイウンラピス」に勝手に化ける現象）を防ぐため、完全一致または逆の包含関係のみ許可
+                            if clean_h_name == m_name:
+                                matched_name = m_name
+                                break
+                        clean_h_name = matched_name
 
                     matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0, 'sex': sex}
                     if clean_h_name in horse_history_features:
