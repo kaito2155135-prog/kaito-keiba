@@ -29,25 +29,62 @@ def load_model():
 
 model = load_model()
 
-def parse_corner_positions(val):
+def parse_corner_positions_from_row(row):
     """
-    コーナー通過順の文字列から1角と4角の位置を正確に抽出する。
-    例: '5-7-8-10' -> 1角=5, 4角=10
+    マスターデータの行から「通過順1角」「通過順2角」などの列を優先して取得し、
+    0や無効な値を除外して1角と4角（または最終コーナー）のポジションを正確に抽出する。
     """
+    c1, c4 = np.nan, np.nan
+    
+    # 個別列がある場合の処理
+    for col_candidates, target_ref in [
+        (['通過順1角', '通過順1', '1角'], 'c1'),
+        (['通過順2角', '通過順4角', '通過順4', '4角', '通過順2'], 'c4')
+    ]:
+        for col in col_candidates:
+            if col in row and pd.notna(row[col]):
+                try:
+                    val = float(str(row[col]).strip())
+                    if val > 0:
+                        if target_ref == 'c1': c1 = val
+                        else: c4 = val
+                        break
+                except:
+                    pass
+
+    # 個別列から取れなかった場合、文字列の 'corner' 列があればフォールバック
+    if (pd.isna(c1) or pd.isna(c4)) and 'corner' in row and pd.notna(row['corner']):
+        try:
+            s = str(row['corner']).strip()
+            for sep in [',', ' ', '/', '->', '－', '―']:
+                s = s.replace(sep, '-')
+            parts = [float(p.strip()) for p in s.split('-') if p.strip().replace('.', '', 1).isdigit()]
+            valid_parts = [p for p in parts if p > 0]
+            if len(valid_parts) >= 2:
+                if pd.isna(c1): c1 = valid_parts[0]
+                if pd.isna(c4): c4 = valid_parts[-1]
+            elif len(valid_parts) == 1:
+                if pd.isna(c1): c1 = valid_parts[0]
+                if pd.isna(c4): c4 = valid_parts[0]
+        except:
+            pass
+
+    return c1, c4
+
+def parse_corner_string_input(val):
+    """テキスト入力などのコーナー文字列から0を除外してパースする"""
     try:
         s = str(val).strip()
         if not s or s == 'nan':
             return np.nan, np.nan
-        
         for sep in [',', ' ', '/', '->', '－', '―']:
             s = s.replace(sep, '-')
-            
-        parts = [p.strip() for p in s.split('-') if p.strip().replace('.', '', 1).isdigit()]
-        if len(parts) >= 2:
-            return float(parts[0]), float(parts[-1])
-        elif len(parts) == 1:
-            p_val = float(parts[0])
-            return p_val, p_val
+        parts = [float(p.strip()) for p in s.split('-') if p.strip().replace('.', '', 1).isdigit()]
+        valid_parts = [p for p in parts if p > 0]
+        if len(valid_parts) >= 2:
+            return valid_parts[0], valid_parts[-1]
+        elif len(valid_parts) == 1:
+            return valid_parts[0], valid_parts[0]
     except:
         pass
     return np.nan, np.nan
@@ -78,9 +115,6 @@ def load_and_process_master_data():
     df_m = pd.DataFrame()
     for enc in ['cp932', 'utf-8-sig', 'utf-8']:
         try:
-            header_df = pd.read_csv(filename, encoding=enc, nrows=5)
-            header_cols = [c.strip() for c in header_df.columns]
-            
             df_m = pd.read_csv(filename, encoding=enc, low_memory=False)
             if not df_m.empty:
                 df_m.columns = [str(c).strip() for c in df_m.columns]
@@ -92,8 +126,7 @@ def load_and_process_master_data():
                     elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
                     elif clean_c in ['タイム', 'Time', 'TIME', '走破タイム', '走破時間']: col_mapping[c] = 'time'
                     elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-                    elif clean_c in ['コーナー', '通過順', 'corner', '通過順1', '通過順（4角）', '通過順(4角)' ]: col_mapping[c] = 'corner'
-                    elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り', '上がり3Fタイム', '上り3Fタイム']: col_mapping[c] = 'last_3f'
+                    elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り', '上がり3Fタイム']: col_mapping[c] = 'last_3f'
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
@@ -129,15 +162,10 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
-    # 過去レースのコーナー通過順を完全にパースして個別の行から正確に算出する
-    if 'corner' in df_m.columns:
-        parsed_corners = df_m['corner'].apply(parse_corner_positions)
-        df_m['corner_1st'] = [x[0] for x in parsed_corners]
-        df_m['corner_4th'] = [x[1] for x in parsed_corners]
-    else:
-        df_m['corner_1st'] = np.nan
-        df_m['corner_4th'] = np.nan
-
+    # 行ごとに0を除外して正確に1角・4角を抽出
+    parsed_corners = df_m.apply(parse_corner_positions_from_row, axis=1)
+    df_m['corner_1st'] = [x[0] for x in parsed_corners]
+    df_m['corner_4th'] = [x[1] for x in parsed_corners]
     df_m['gap'] = df_m['corner_4th'] - df_m['corner_1st']
     df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
@@ -322,7 +350,6 @@ with tab1:
                                 break
                         clean_h_name = matched_name
 
-                    # 過去レースデータから正確に取得（マスターにデータがない場合はNaNではなくデフォルト補完）
                     matched_hist = {
                         'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_gap': np.nan,
@@ -351,7 +378,6 @@ with tab1:
                                 matched_hist['avg_corner_4th'] = d_dict[closest_dist]['avg_corner_4th']
                                 matched_hist['avg_gap'] = d_dict[closest_dist]['avg_gap']
 
-                    # 過去データのコーナーやギャップが取得できなかった場合の厳密なフォールバック
                     c1_val = matched_hist['avg_corner_1st']
                     c4_val = matched_hist['avg_corner_4th']
                     gap_val = matched_hist['avg_gap']
@@ -491,7 +517,7 @@ with tab2:
                 r_time = st.text_input("走破タイム (例: 2:00.0)", "2:00.0", key=f"r_time_{i}")
                 r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
-            c_1st_val, c_4th_val = parse_corner_positions(r_corner)
+            c_1st_val, c_4th_val = parse_corner_string_input(r_corner)
             gap_val = c_4th_val - c_1st_val if not pd.isna(c_1st_val) and not pd.isna(c_4th_val) else 0.0
 
             new_data_list.append({
@@ -500,7 +526,7 @@ with tab2:
                 'race_class': race_class, 'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': clean_str(r_name),
                 'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
                 'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
-                'corner': r_corner, 'corner_1st': c_1st_val, 'corner_4th': c_4th_val, 'gap': gap_val,
+                'corner': r_corner, '通過順1角': c_1st_val, '通過順2角': c_4th_val, 'corner_1st': c_1st_val, 'corner_4th': c_4th_val, 'gap': gap_val,
                 'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
             })
 
