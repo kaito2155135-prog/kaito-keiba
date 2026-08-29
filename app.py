@@ -78,8 +78,8 @@ def load_and_process_master_data():
                    elif clean_c in ['日', 'day']: col_mapping[c] = 'day'
                    elif clean_c in ['場所', '開催', 'place']: col_mapping[c] = 'place'
                    elif clean_c in ['レース番', 'レース番号', 'R', 'race_no']: col_mapping[c] = 'race_no'
-                   elif clean_c in ['トラック', 'track']: col_mapping[c] = 'track'
                df_m = df_m.rename(columns=col_mapping)
+               # 💡 重複した列名がある場合に最初の1つに絞ってエラーを防ぐ
                df_m = df_m.loc[:, ~df_m.columns.duplicated()]
                break
        except Exception:
@@ -94,10 +94,6 @@ def load_and_process_master_data():
        df_m['sex'] = df_m['sex'].astype(str).str.strip()
    else:
        df_m['sex'] = '牡'
-   if 'track' in df_m.columns:
-       df_m['track'] = df_m['track'].astype(str).str.strip()
-   else:
-       df_m['track'] = '芝'
 
    if 'rank' in df_m.columns:
        df_m['rank'] = pd.to_numeric(df_m['rank'], errors='coerce').fillna(1)
@@ -121,6 +117,7 @@ def load_and_process_master_data():
        else:
            df_m[c_col] = 0.0
 
+   # --- 短距離などで0になっているコーナーを有効な数値でフォールバック補完 ---
    df_m['effective_c4'] = df_m['corner_4th']
    df_m.loc[df_m['effective_c4'] <= 0, 'effective_c4'] = df_m['corner_3rd']
    df_m.loc[df_m['effective_c4'] <= 0, 'effective_c4'] = df_m['corner_2nd']
@@ -151,6 +148,7 @@ def load_and_process_master_data():
 
    df_m['race_top3_c4_avg'] = df_m['race_top3_c4_avg'].fillna(5.0)
 
+   # --- 修正：展開の利不利と着順（好走度）を掛け合わせた展開逆行ギャップ ---
    pos_diff = df_m['race_top3_c4_avg'] - df_m['effective_c4']
    rank_weight = (4.0 - df_m['rank'].clip(upper=4))
    df_m['bias_gap'] = pos_diff * rank_weight
@@ -163,7 +161,6 @@ def load_and_process_master_data():
 
    horse_history_features = {}
    if 'name' in df_m.columns:
-       # 全体平均の集計
        h_grouped = df_m.groupby('name').agg(
            avg_rank=('rank', 'mean'),
            best_rank=('rank', 'min'),
@@ -177,29 +174,9 @@ def load_and_process_master_data():
            avg_c4=('effective_c4', 'mean'),
            avg_bias_gap=('bias_gap', 'mean')
        )
-
-       # トラック別（芝・ダート等）平均の集計
-       h_track_grouped = df_m.groupby(['name', 'track']).agg(
-           avg_rank=('rank', 'mean'),
-           avg_time=('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
-           avg_last_3f=('last_3f', 'mean'),
-           race_count=('rank', 'count')
-       ).to_dict(orient='index')
-
        for h_name, row in h_grouped.iterrows():
            c_name = clean_str(h_name)
            if c_name:
-               # トラック別の個別辞書を作成
-               t_dict = {}
-               for (name_key, track_val), t_row in h_track_grouped.items():
-                   if clean_str(name_key) == c_name:
-                       t_dict[track_val] = {
-                           'avg_rank': t_row['avg_rank'],
-                           'avg_time': t_row['avg_time'],
-                           'avg_last_3f': t_row['avg_last_3f'],
-                           'race_count': t_row['race_count']
-                       }
-
                horse_history_features[c_name] = {
                    'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
                    'best_rank': row['best_rank'] if not np.isnan(row['best_rank']) else 5.0,
@@ -211,8 +188,7 @@ def load_and_process_master_data():
                    'avg_c2': row['avg_c2'] if not np.isnan(row['avg_c2']) else 5.0,
                    'avg_c3': row['avg_c3'] if not np.isnan(row['avg_c3']) else 5.0,
                    'avg_c4': row['avg_c4'] if not np.isnan(row['avg_c4']) else 5.0,
-                   'avg_bias_gap': row['avg_bias_gap'] if not np.isnan(row['avg_bias_gap']) else 0.0,
-                   'track_specific': t_dict
+                   'avg_bias_gap': row['avg_bias_gap'] if not np.isnan(row['avg_bias_gap']) else 0.0
                }
 
    return df_m, jockey_win_rates, horse_history_features
@@ -328,24 +304,11 @@ with tab1:
 
                    matched_hist = horse_history_features.get(clean_h_name, {
                        'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
-                       'race_count': 0, 'sex': sex, 'avg_c1': 5.0, 'avg_c2': 5.0, 'avg_c3': 5.0, 'avg_c4': 5.0, 'avg_bias_gap': 0.0, 'track_specific': {}
+                       'race_count': 0, 'sex': sex, 'avg_c1': 5.0, 'avg_c2': 5.0, 'avg_c3': 5.0, 'avg_c4': 5.0, 'avg_bias_gap': 0.0
                    })
 
                    if matched_hist.get('sex') in ['牡', '牝', 'セン', 'セ']:
                        sex = matched_hist['sex']
-
-                   # --- 💡 選択されたトラック（芝・ダート等）の適性を優先しつつ全体平均とブレンドする補正 ---
-                   track_spec = matched_hist.get('track_specific', {}).get(p_track)
-                   if track_spec and track_spec.get('race_count', 0) > 0:
-                       # 同条件の実績がある場合、その条件の値をベースにする（全体平均と7:3のブレンドなどで極端さを防ぐ）
-                       p_avg_rank = track_spec['avg_rank'] * 0.7 + matched_hist['avg_rank'] * 0.3
-                       p_avg_time = track_spec['avg_time'] if track_spec['avg_time'] > 0 else matched_hist['avg_time']
-                       p_last_3f = track_spec['avg_last_3f'] if not np.isnan(track_spec['avg_last_3f']) else matched_hist['avg_last_3f']
-                   else:
-                       # 実績がない場合（初ダートなど）、全体平均を使いつつ初挑戦の割引/補正を適用
-                       p_avg_rank = matched_hist['avg_rank']
-                       p_avg_time = matched_hist['avg_time']
-                       p_last_3f = matched_hist['avg_last_3f']
 
                    c1 = matched_hist['avg_c1']
                    c2 = matched_hist['avg_c2']
@@ -358,10 +321,10 @@ with tab1:
                        'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': clean_h_name, 'sex': sex, 'age': age, 'sire': '不明',
                        'odds': odds, 'popularity': popularity, 'weight': weight, 'jockey': jockey,
                        'jockey_win_rate': jockey_win_rates.get(jockey, 0.08),
-                       'past_avg_rank': p_avg_rank,
+                       'past_avg_rank': matched_hist['avg_rank'],
                        'past_best_rank': matched_hist['best_rank'],
-                       'time_sec': p_avg_time if p_avg_time > 0 else 0.0,
-                       'last_3f': p_last_3f,
+                       'time_sec': matched_hist['avg_time'] if matched_hist['avg_time'] > 0 else 0.0,
+                       'last_3f': matched_hist['avg_last_3f'],
                        'blinker': 0,
                        'corner_1st': c1,
                        'corner_2nd': c2,
