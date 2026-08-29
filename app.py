@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【真の展開逆行・最強網羅版】スマホで育てる！競馬AIマスターアプリ")
-st.write("直近データ全行 ＆ 「展開を逆行した真の強さ」評価エンジン稼働中！✨🔥")
+st.title("🐎【真の展開逆行・全履歴評価版】スマホで育てる！競馬AIマスターアプリ")
+st.write("過去全レースの展開バイアス＆通過順推移の完全表示対応！✨🔥")
 
 def clean_str(s):
     if not s:
@@ -156,19 +156,15 @@ def load_and_process_master_data():
     df_m['corner_4th'] = [x[1] for x in parsed_corners]
     df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
-    # レースごとの展開バイアス（上位馬の4角平均ポジション）を計算
+    # 各レースの上位3頭の4角平均を算出
     if 'race_id' in df_m.columns:
-        # 上位3頭の4角平均を算出
         top3_df = df_m[df_m['rank'] <= 3]
         race_bias = top3_df.groupby('race_id')['corner_4th'].mean().to_dict()
         df_m['race_bias_4th'] = df_m['race_id'].map(race_bias).fillna(6.0)
     else:
         df_m['race_bias_4th'] = 6.0
 
-    # 展開逆行スコアの計算:
-    # レースが「前残り（バイアス小さめ）」なのに後方から突っ込んだ場合、または
-    # レースが「差し有利（バイアス大きめ）」なのに前で粘った場合をプラス評価にする
-    # (自分の4角位置 - レース上位馬の4角平均) の絶対値が大きいほど、展開に逆らって好走したことになる
+    # 過去全レースの真の展開逆行度を計算
     df_m['true_reverse_gap'] = df_m['corner_4th'] - df_m['race_bias_4th']
 
     jockey_win_rates = {}
@@ -441,7 +437,7 @@ with tab1:
                 model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
-                reverse_bonus = df_input['true_reverse_gap'].abs() * 1.2 # 展開逆行度が大きいほどプラス
+                reverse_bonus = df_input['true_reverse_gap'].abs() * 1.2
                 score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
             except Exception as e:
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
@@ -474,14 +470,17 @@ with tab1:
             h_l3f = row.get('last_3f', 35.0)
             h_odds = row.get('odds', 10.0)
             h_jockey = row.get('jockey', '不明')
+            c_1st = row.get('corner_1st', np.nan)
             c_4th = row.get('corner_4th', 7.0)
             t_gap = row.get('true_reverse_gap', 0.0)
             h_dirt_exp = row.get('has_dirt_exp', False)
             has_history = (h_avg != 5.0)
 
+            is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
+            corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
             dirt_tag = " ⚠️(初ダート)" if (p_track == "ダート" and has_history and not h_dirt_exp) else ""
 
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 4角: {c_4th:.1f} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をPart2マスターに追加する")
@@ -571,7 +570,7 @@ with tab3:
                 clf.fit(X, y)
                 joblib.dump(clf, 'keiba_ai_model.pkl')
                 st.balloons()
-                st.success("🎉 再学習完了！「真の展開逆行度」がAIファクターに組み込まれました！")
+                st.success("🎉 再学習完了！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
