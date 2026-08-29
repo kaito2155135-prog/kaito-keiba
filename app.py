@@ -31,20 +31,24 @@ model = load_model()
 
 def parse_corner_positions(val):
     """
-    コーナー通過順の文字列（例: '5-7-8-10' や '5-5-4-3'）から
-    1コーナー（または最初）の位置と、4コーナー（または最後）の位置を正確に抽出する。
+    コーナー通過順の文字列（例: '5-7-8-10' や '5, 7, 8, 10' や単一の数値など）から
+    1コーナーの位置と、4コーナー（または最後）の位置を正確に抽出する。
+    CSV内の区切り文字（ハイカンマやスラッシュ等）やマルチコーナーに対応。
     """
     try:
         s = str(val).strip()
-        if '-' in s:
-            parts = [p.strip() for p in s.split('-') if p.strip().isdigit()]
-            if len(parts) >= 2:
-                return float(parts[0]), float(parts[-1])
-            elif len(parts) == 1:
-                p_val = float(parts[0])
-                return p_val, p_val
-        elif s.isdigit():
-            p_val = float(s)
+        if not s or s == 'nan':
+            return 8.0, 8.0
+        
+        # 区切り文字の正規化（カンマやスペース、ハイフンなどに対応）
+        for sep in [',', ' ', '/', '->']:
+            s = s.replace(sep, '-')
+            
+        parts = [p.strip() for p in s.split('-') if p.strip().replace('.', '', 1).isdigit()]
+        if len(parts) >= 2:
+            return float(parts[0]), float(parts[-1])
+        elif len(parts) == 1:
+            p_val = float(parts[0])
             return p_val, p_val
     except:
         pass
@@ -102,7 +106,7 @@ def load_and_process_master_data():
                     elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
                     elif clean_c in ['タイム', 'Time', 'TIME', '走破タイム', '走破時間']: col_mapping[c] = 'time'
                     elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-                    elif clean_c in ['コーナー', '通過順', 'corner']: col_mapping[c] = 'corner'
+                    elif clean_c in ['コーナー', '通過順', 'corner', '通過順1']: col_mapping[c] = 'corner'
                     elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り', '上がり3Fタイム', '上り3Fタイム']: col_mapping[c] = 'last_3f'
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
@@ -139,7 +143,7 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
-    # コーナー位置のパース処理
+    # コーナー位置のパース処理（全行に対して確実に実行してバラバラの数値を抽出）
     corner_parsed = df_m['corner'].apply(parse_corner_positions) if 'corner' in df_m.columns else pd.Series([(8.0, 8.0)] * len(df_m))
     df_m['corner_1st'] = [x[0] for x in corner_parsed]
     df_m['corner_4th'] = [x[1] for x in corner_parsed]
@@ -327,7 +331,7 @@ with tab1:
                                 break
                         clean_h_name = matched_name
 
-                    matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'avg_corner_1st': 5.0, 'avg_corner_4th': 8.0, 'avg_gap': 0.0, 'race_count': 0, 'sex': sex}
+                    matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'avg_corner_1st': 5.0, 'avg_corner_4th': 8.0, 'avg_gap': 3.0, 'race_count': 0, 'sex': sex}
                     if clean_h_name in horse_history_features:
                         matched_hist = horse_history_features[clean_h_name].copy()
 
@@ -372,13 +376,16 @@ with tab1:
 
     if len(input_data_list) == 0:
         st.warning("⚠️ テキスト未入力または解析対象外のため、デフォルトの8頭で表示しています。")
+        np.random.seed(42)
         for i in range(8):
+            c1 = float(np.random.randint(1, 12))
+            c4 = float(np.random.randint(1, 12))
             input_data_list.append({
                 'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
                 'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
                 'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
-                'corner_1st': 5.0, 'corner_4th': 8.0, 'gap': 3.0
+                'corner_1st': c1, 'corner_4th': c4, 'gap': c4 - c1
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
@@ -515,7 +522,7 @@ with tab3:
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
 
                 for col in ['place', 'track', 'condition', 'sire', 'race_class']:
-                    if col in df_train.columns:
+                    if col in df_train.cols if col in df_train.columns else False:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
 
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'gap', 'race_class', 'time_sec', 'last_3f']
