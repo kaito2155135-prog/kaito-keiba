@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【真・展開バイアス＆ギャップ評価版】スマホで育てる！競馬AIマスターアプリ")
-st.write("レース単位の1〜3着4角位置から「前有利・差し有利」を自動判定し、着順・通過順ギャップを評価するエンジン稼働中！✨🔥")
+st.title("🐎【完全版・展開ギャップ評価エンジン】競馬AIマスターアプリ")
+st.write("マスターデータの列構造完全同期＆レース単位の展開ギャップ算出中！✨🔥")
 
 def clean_str(s):
   if not s:
@@ -77,7 +77,7 @@ def load_and_process_master_data():
                   elif clean_c in ['月', 'month']: col_mapping[c] = 'month'
                   elif clean_c in ['日', 'day']: col_mapping[c] = 'day'
                   elif clean_c in ['場所', '開催', 'place']: col_mapping[c] = 'place'
-                  elif clean_c in ['レース番号', 'R', 'race_no']: col_mapping[c] = 'race_no'
+                  elif clean_c in ['レース番', 'レース番号', 'R', 'race_no']: col_mapping[c] = 'race_no'
               df_m = df_m.rename(columns=col_mapping)
               break
       except Exception:
@@ -117,31 +117,32 @@ def load_and_process_master_data():
 
   df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
-  # --- レースごとの全体像（1〜3着の4角位置）から展開バイアスを計算 ---
-  race_keys = []
-  for col_k in ['year', 'month', 'day', 'place', 'race_no']:
-      if col_k in df_m.columns:
-          race_keys.append(col_k)
+  # --- レースごとのグループ化キー（年、月、日、場所、レース番）を確実に数値・文字列化 ---
+  for k in ['year', 'month', 'day', 'race_no']:
+      if k in df_m.columns:
+          df_m[k] = pd.to_numeric(df_m[k], errors='coerce').fillna(0).astype(int)
+  if 'place' in df_m.columns:
+      df_m['place'] = df_m['place'].astype(str).str.strip()
+
+  race_keys = [k for k in ['year', 'month', 'day', 'place', 'race_no'] if k in df_m.columns]
 
   if len(race_keys) >= 2:
-      # レース単位でグループ化し、1〜3着馬の4角(corner_4th)の平均を算出
       def calc_race_bias(group):
           top3 = group[group['rank'] <= 3]
           if not top3.empty and 'corner_4th' in top3.columns:
-              avg_top3_c4 = top3['corner_4th'].mean()
-              return avg_top3_c4
+              return top3['corner_4th'].mean()
           return np.nan
 
       race_bias_series = df_m.groupby(race_keys).apply(calc_race_bias)
-      df_m['race_top3_c4_avg'] = df_m.set_index(race_keys).index.map(race_bias_series)
+      # マルチインデックスの結合エラーを防ぐため map を安全に適用
+      df_m['race_top3_c4_avg'] = df_m.set_index(race_keys).index.map(race_bias_series).values
   else:
       df_m['race_top3_c4_avg'] = np.nan
 
-  # 各レースの1〜3着平均4角位置が若い（例: 3番手以内）なら「前有利」、大きければ「差し・後方有利」
-  # 個別馬の「展開逆行ギャップスコア」を計算（例：前有利なレースで後方から上位に来た場合はプラス）
+  # 1〜3着の4角平均と自身の4角位置・着順からギャップを計算
   if 'race_top3_c4_avg' in df_m.columns and 'corner_4th' in df_m.columns:
-      # 基準として、全レースの1〜3着平均の中央値（または大体5番手前後）と比較
-      # レース全体が前残り（1〜3着の4角平均 <= 4.0）のとき、自身の4角が後ろ（> 8.0）で着順が良いほど高評価
+      df_m['race_top3_c4_avg'] = df_m['race_top3_c4_avg'].fillna(5.0)
+      # 展開逆行ギャップ: (レースの1~3着平均4角 - 自馬の4角) * (4 - 着順) のイメージ
       df_m['bias_gap'] = (df_m['race_top3_c4_avg'] - df_m['corner_4th']) * (4.0 - df_m['rank'])
   else:
       df_m['bias_gap'] = 0.0
@@ -191,7 +192,7 @@ df_m_auto, jockey_win_rates, horse_history_features = load_and_process_master_da
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-  st.subheader("🚀 勝ち馬のガチ予測（真・展開ギャップ評価版）")
+  st.subheader("🚀 勝ち馬のガチ予測（展開ギャップ完全連動版）")
 
   col_p1, col_p2, col_p3 = st.columns(3)
   with col_p1:
@@ -377,21 +378,21 @@ with tab1:
                   if f not in df_input_enc.columns: df_input_enc[f] = 0
               model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
-              score = model_probs * 1.5 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-3, upper=3) * 1.2 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
+              score = model_probs * 1.5 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-5, upper=5) * 1.5 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
               exp_s = np.exp(score - score.max())
               df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
           except Exception as e:
-              score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-3, upper=3) * 1.2 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+              score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-5, upper=5) * 1.5 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
               exp_s = np.exp(score - score.max())
               df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
       else:
-          score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-3, upper=3) * 1.2 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+          score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-5, upper=5) * 1.5 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
           exp_s = np.exp(score - score.max())
           df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
       df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
       st.balloons()
-      st.subheader("🎯 ガチAI予測結果ランキング（真・展開ギャップ評価版）")
+      st.subheader("🎯 ガチAI予測結果ランキング（展開ギャップ完全連動版）")
 
       for idx, row in df_input.iterrows():
           u_num = row.get('umaban', idx+1)
@@ -412,9 +413,9 @@ with tab1:
 with tab2:
   st.subheader("📝 レース結果をPart2マスターに追加する")
   col_d1, col_d2, col_d3 = st.columns(3)
-  with col_d1: r_year = st.number_input("年", min_value=2000, max_value=2030, value=2026, key="r_year")
-  with col_d2: r_month = st.number_input("月", min_value=1, max_value=12, value=6, key="r_month")
-  with col_d3: r_day = st.number_input("日", min_value=1, max_value=31, value=1, key="r_day")
+  with col_d1: r_year = st.number_input("年", min_value=2000, max_value=2030, value=2024, key="r_year")
+  with col_d2: r_month = st.number_input("月", min_value=1, max_value=12, value=7, key="r_month")
+  with col_d3: r_day = st.number_input("日", min_value=1, max_value=31, value=20, key="r_day")
 
   col_r1, col_r2, col_r3 = st.columns(3)
   with col_r1:
@@ -422,11 +423,11 @@ with tab2:
       race_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="r_class")
   with col_r2:
       track_type = st.selectbox("トラック", ["芝", "ダート", "障害"], key="r_track")
-      distance = st.number_input("距離 (m)", value=2000, step=100, key="r_distance")
+      distance = st.number_input("距離 (m)", value=1200, step=100, key="r_distance")
   with col_r3:
       condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="r_cond")
 
-  res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=8, key="res_num")
+  res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=5, key="res_num")
   new_data_list = []
   for i in range(res_num_horses):
       u_num = i + 1
@@ -441,21 +442,21 @@ with tab2:
               r_blinker = 1 if "B" in r_blinker_str else 0
           with col_b:
               r_jockey = st.text_input("騎手名", "不明", key=f"r_jockey_{i}")
-              r_weight = st.number_input("斤量", value=56.0, step=0.5, key=f"r_weight_{i}")
+              r_weight = st.number_input("斤量", value=54.0, step=0.5, key=f"r_weight_{i}")
               r_sire = st.text_input("父馬名", "不明", key=f"r_sire_{i}")
-              r_age = st.number_input("年齢", min_value=2, max_value=15, value=4, key=f"r_age_{i}")
-              c1_in = st.number_input("1角通過順", min_value=1.0, max_value=18.0, value=5.0, step=1.0, key=f"r_c1_{i}")
-              c2_in = st.number_input("2角通過順", min_value=1.0, max_value=18.0, value=5.0, step=1.0, key=f"r_c2_{i}")
-              c3_in = st.number_input("3角通過順", min_value=1.0, max_value=18.0, value=4.0, step=1.0, key=f"r_c3_{i}")
+              r_age = st.number_input("年齢", min_value=2, max_value=15, value=3, key=f"r_age_{i}")
+              c1_in = st.number_input("1角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c1_{i}")
+              c2_in = st.number_input("2角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c2_{i}")
+              c3_in = st.number_input("3角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c3_{i}")
               c4_in = st.number_input("4角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c4_{i}")
-              r_time = st.text_input("走破タイム (例: 1:45.2)", "2:00.0", key=f"r_time_{i}")
+              r_time = st.text_input("走破タイム (例: 1:09.2)", "1:10.0", key=f"r_time_{i}")
               r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
           new_data_list.append({
               'year': r_year, 'month': r_month, 'day': r_day,
               'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
-              'race_class': race_class, 'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': clean_str(r_name),
-              'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
+              'race_class': race_class, 'race_no': 1, 'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': clean_str(r_name),
+              'sex': '牝', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
               'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
               'corner_1st': c1_in, 'corner_2nd': c2_in, 'corner_3rd': c3_in, 'corner_4th': c4_in,
               'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
