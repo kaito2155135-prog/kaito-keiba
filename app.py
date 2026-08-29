@@ -130,8 +130,6 @@ def load_and_process_master_data():
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
-                    elif clean_c in ['通過順1角', '1角', '通過順1']: col_mapping[c] = '通過順1角'
-                    elif clean_c in ['通過順2角', '通過順4角', '4角', '通過順4', '通過順2']: col_mapping[c] = '通過順2角'
                 df_m = df_m.rename(columns=col_mapping)
                 break
         except Exception:
