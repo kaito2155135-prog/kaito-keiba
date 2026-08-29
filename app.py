@@ -31,17 +31,15 @@ model = load_model()
 
 def parse_corner_positions(val):
     """
-    コーナー通過順の文字列（例: '5-7-8-10' や '5, 7, 8, 10' や単一の数値など）から
-    1コーナーの位置と、4コーナー（または最後）の位置を正確に抽出する。
-    CSV内の区切り文字（ハイカンマやスラッシュ等）やマルチコーナーに対応。
+    コーナー通過順の文字列から1角と4角の位置を正確に抽出する。
+    例: '5-7-8-10' -> 1角=5, 4角=10
     """
     try:
         s = str(val).strip()
         if not s or s == 'nan':
             return 8.0, 8.0
         
-        # 区切り文字の正規化（カンマやスペース、ハイフンなどに対応）
-        for sep in [',', ' ', '/', '->']:
+        for sep in [',', ' ', '/', '->', '－', '―']:
             s = s.replace(sep, '-')
             
         parts = [p.strip() for p in s.split('-') if p.strip().replace('.', '', 1).isdigit()]
@@ -143,7 +141,7 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
-    # コーナー位置のパース処理（全行に対して確実に実行してバラバラの数値を抽出）
+    # コーナー位置のパース処理（各行ごとに必ず個別の数値を抽出・反映）
     corner_parsed = df_m['corner'].apply(parse_corner_positions) if 'corner' in df_m.columns else pd.Series([(8.0, 8.0)] * len(df_m))
     df_m['corner_1st'] = [x[0] for x in corner_parsed]
     df_m['corner_4th'] = [x[1] for x in corner_parsed]
@@ -522,7 +520,7 @@ with tab3:
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
 
                 for col in ['place', 'track', 'condition', 'sire', 'race_class']:
-                    if col in df_train.cols if col in df_train.columns else False:
+                    if col in df_train.columns:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
 
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'gap', 'race_class', 'time_sec', 'last_3f']
