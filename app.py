@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 st.title("🐎【完全版・展開ギャップ評価エンジン】競馬AIマスターアプリ")
-st.write("マスターデータの列構造完全同期＆レース単位の展開ギャップ算出中！✨🔥")
+st.write("短距離・直線レースのコーナーデータ欠損ロジックを完全補正中！✨🔥")
 
 def clean_str(s):
   if not s:
@@ -65,7 +65,7 @@ def load_and_process_master_data():
                   elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
                   elif clean_c in ['タイム', 'Time', 'TIME', '走破タイム', '走破時間']: col_mapping[c] = 'time'
                   elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-                  elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り', '上がり3Fタイム', '上り3Fタイム']: col_mapping[c] = 'last_3f'
+                  elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り']: col_mapping[c] = 'last_3f'
                   elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                   elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                   elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
@@ -111,13 +111,20 @@ def load_and_process_master_data():
 
   for c_col in ['corner_1st', 'corner_2nd', 'corner_3rd', 'corner_4th']:
       if c_col in df_m.columns:
-          df_m[c_col] = pd.to_numeric(df_m[c_col], errors='coerce')
+          df_m[c_col] = pd.to_numeric(df_m[c_col], errors='coerce').fillna(0)
       else:
-          df_m[c_col] = np.nan
+          df_m[c_col] = 0.0
+
+  # --- 短距離などで0になっているコーナーを有効な数値でフォールバック補完 ---
+  # 4角が0なら3角、3角も0なら2角、それも0なら1角を使う
+  df_m['effective_c4'] = df_m['corner_4th']
+  df_m.loc[df_m['effective_c4'] <= 0, 'effective_c4'] = df_m['corner_3rd']
+  df_m.loc[df_m['effective_c4'] <= 0, 'effective_c4'] = df_m['corner_2nd']
+  df_m.loc[df_m['effective_c4'] <= 0, 'effective_c4'] = df_m['corner_1st']
+  df_m.loc[df_m['effective_c4'] <= 0, 'effective_c4'] = 5.0 # どうしても無い場合は中央値
 
   df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
-  # --- レースごとのグループ化キー（年、月、日、場所、レース番）を確実に数値・文字列化 ---
   for k in ['year', 'month', 'day', 'race_no']:
       if k in df_m.columns:
           df_m[k] = pd.to_numeric(df_m[k], errors='coerce').fillna(0).astype(int)
@@ -129,23 +136,18 @@ def load_and_process_master_data():
   if len(race_keys) >= 2:
       def calc_race_bias(group):
           top3 = group[group['rank'] <= 3]
-          if not top3.empty and 'corner_4th' in top3.columns:
-              return top3['corner_4th'].mean()
-          return np.nan
+          if not top3.empty:
+              return top3['effective_c4'].mean()
+          return group['effective_c4'].mean()
 
       race_bias_series = df_m.groupby(race_keys).apply(calc_race_bias)
-      # マルチインデックスの結合エラーを防ぐため map を安全に適用
       df_m['race_top3_c4_avg'] = df_m.set_index(race_keys).index.map(race_bias_series).values
   else:
-      df_m['race_top3_c4_avg'] = np.nan
+      df_m['race_top3_c4_avg'] = df_m['effective_c4'].mean()
 
-  # 1〜3着の4角平均と自身の4角位置・着順からギャップを計算
-  if 'race_top3_c4_avg' in df_m.columns and 'corner_4th' in df_m.columns:
-      df_m['race_top3_c4_avg'] = df_m['race_top3_c4_avg'].fillna(5.0)
-      # 展開逆行ギャップ: (レースの1~3着平均4角 - 自馬の4角) * (4 - 着順) のイメージ
-      df_m['bias_gap'] = (df_m['race_top3_c4_avg'] - df_m['corner_4th']) * (4.0 - df_m['rank'])
-  else:
-      df_m['bias_gap'] = 0.0
+  df_m['race_top3_c4_avg'] = df_m['race_top3_c4_avg'].fillna(5.0)
+  # 展開逆行ギャップの計算（マイナス・プラスがしっかり出るように調整）
+  df_m['bias_gap'] = (df_m['race_top3_c4_avg'] - df_m['effective_c4']) * (4.0 - df_m['rank'])
 
   jockey_win_rates = {}
   if 'jockey' in df_m.columns and 'rank' in df_m.columns:
@@ -165,7 +167,7 @@ def load_and_process_master_data():
           avg_c1=('corner_1st', 'mean'),
           avg_c2=('corner_2nd', 'mean'),
           avg_c3=('corner_3rd', 'mean'),
-          avg_c4=('corner_4th', 'mean'),
+          avg_c4=('effective_c4', 'mean'),
           avg_bias_gap=('bias_gap', 'mean')
       )
       for h_name, row in h_grouped.iterrows():
@@ -178,10 +180,10 @@ def load_and_process_master_data():
                   'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
                   'race_count': row['race_count'],
                   'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡',
-                  'avg_c1': row['avg_c1'] if not np.isnan(row['avg_c1']) else np.nan,
-                  'avg_c2': row['avg_c2'] if not np.isnan(row['avg_c2']) else np.nan,
-                  'avg_c3': row['avg_c3'] if not np.isnan(row['avg_c3']) else np.nan,
-                  'avg_c4': row['avg_c4'] if not np.isnan(row['avg_c4']) else np.nan,
+                  'avg_c1': row['avg_c1'] if not np.isnan(row['avg_c1']) else 5.0,
+                  'avg_c2': row['avg_c2'] if not np.isnan(row['avg_c2']) else 5.0,
+                  'avg_c3': row['avg_c3'] if not np.isnan(row['avg_c3']) else 5.0,
+                  'avg_c4': row['avg_c4'] if not np.isnan(row['avg_c4']) else 5.0,
                   'avg_bias_gap': row['avg_bias_gap'] if not np.isnan(row['avg_bias_gap']) else 0.0
               }
 
@@ -192,7 +194,7 @@ df_m_auto, jockey_win_rates, horse_history_features = load_and_process_master_da
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-  st.subheader("🚀 勝ち馬のガチ予測（展開ギャップ完全連動版）")
+  st.subheader("🚀 勝ち馬のガチ予測（展開ギャップ完全対応版）")
 
   col_p1, col_p2, col_p3 = st.columns(3)
   with col_p1:
@@ -200,7 +202,7 @@ with tab1:
       p_class = st.selectbox("クラス", ["新馬", "未勝利", "1勝クラス", "2勝クラス", "3勝クラス", "オープン", "G3", "G2", "G1"], key="p_class")
   with col_p2:
       p_track = st.selectbox("トラック", ["芝", "ダート", "障害"], key="p_track")
-      p_distance = st.number_input("距離 (m)", value=2000, step=100, key="p_distance")
+      p_distance = st.number_input("距離 (m)", value=1200, step=100, key="p_distance")
   with col_p3:
       p_condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="p_condition")
 
@@ -298,16 +300,16 @@ with tab1:
 
                   matched_hist = horse_history_features.get(clean_h_name, {
                       'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
-                      'race_count': 0, 'sex': sex, 'avg_c1': np.nan, 'avg_c2': np.nan, 'avg_c3': np.nan, 'avg_c4': np.nan, 'avg_bias_gap': 0.0
+                      'race_count': 0, 'sex': sex, 'avg_c1': 5.0, 'avg_c2': 5.0, 'avg_c3': 5.0, 'avg_c4': 5.0, 'avg_bias_gap': 0.0
                   })
 
                   if matched_hist.get('sex') in ['牡', '牝', 'セン', 'セ']:
                       sex = matched_hist['sex']
 
-                  c1 = matched_hist['avg_c1'] if not np.isnan(matched_hist['avg_c1']) else float((umaban % 5) + 2)
-                  c2 = matched_hist['avg_c2'] if not np.isnan(matched_hist['avg_c2']) else c1
-                  c3 = matched_hist['avg_c3'] if not np.isnan(matched_hist['avg_c3']) else c1
-                  c4 = matched_hist['avg_c4'] if not np.isnan(matched_hist['avg_c4']) else c1
+                  c1 = matched_hist['avg_c1']
+                  c2 = matched_hist['avg_c2']
+                  c3 = matched_hist['avg_c3']
+                  c4 = matched_hist['avg_c4']
                   b_gap = matched_hist['avg_bias_gap']
 
                   input_data_list.append({
@@ -378,21 +380,21 @@ with tab1:
                   if f not in df_input_enc.columns: df_input_enc[f] = 0
               model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
-              score = model_probs * 1.5 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-5, upper=5) * 1.5 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
+              score = model_probs * 1.5 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-8, upper=8) * 1.8 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
               exp_s = np.exp(score - score.max())
               df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
           except Exception as e:
-              score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-5, upper=5) * 1.5 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+              score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-8, upper=8) * 1.8 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
               exp_s = np.exp(score - score.max())
               df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
       else:
-          score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-5, upper=5) * 1.5 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+          score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['bias_gap'].clip(lower=-8, upper=8) * 1.8 + df_input['jockey_win_rate'] * 1.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
           exp_s = np.exp(score - score.max())
           df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
       df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
       st.balloons()
-      st.subheader("🎯 ガチAI予測結果ランキング（展開ギャップ完全連動版）")
+      st.subheader("🎯 ガチAI予測結果ランキング（展開ギャップ完全対応版）")
 
       for idx, row in df_input.iterrows():
           u_num = row.get('umaban', idx+1)
@@ -445,10 +447,10 @@ with tab2:
               r_weight = st.number_input("斤量", value=54.0, step=0.5, key=f"r_weight_{i}")
               r_sire = st.text_input("父馬名", "不明", key=f"r_sire_{i}")
               r_age = st.number_input("年齢", min_value=2, max_value=15, value=3, key=f"r_age_{i}")
-              c1_in = st.number_input("1角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c1_{i}")
-              c2_in = st.number_input("2角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c2_{i}")
-              c3_in = st.number_input("3角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c3_{i}")
-              c4_in = st.number_input("4角通過順", min_value=1.0, max_value=18.0, value=3.0, step=1.0, key=f"r_c4_{i}")
+              c1_in = st.number_input("1角通過順", min_value=0.0, max_value=18.0, value=0.0, step=1.0, key=f"r_c1_{i}")
+              c2_in = st.number_input("2角通過順", min_value=0.0, max_value=18.0, value=0.0, step=1.0, key=f"r_c2_{i}")
+              c3_in = st.number_input("3角通過順", min_value=0.0, max_value=18.0, value=5.0, step=1.0, key=f"r_c3_{i}")
+              c4_in = st.number_input("4角通過順", min_value=0.0, max_value=18.0, value=5.0, step=1.0, key=f"r_c4_{i}")
               r_time = st.text_input("走破タイム (例: 1:09.2)", "1:10.0", key=f"r_time_{i}")
               r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
