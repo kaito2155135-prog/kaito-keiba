@@ -30,10 +30,6 @@ def load_model():
 model = load_model()
 
 def parse_corner_positions_from_row(row):
-    """
-    マスターデータの行から「通過順1角」「通過順2角」「通過順3角」「通過順4角」を安全に取得し、
-    0や無効な値を除外した上で、1角と最後のコーナー（または4角）のポジションを抽出する。
-    """
     c1, c4 = np.nan, np.nan
     corner_vals = []
     
@@ -120,7 +116,9 @@ def load_and_process_master_data():
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
-                    elif clean_c in ['トラック', 'Track', 'track']: col_mapping[c] = 'track_type'
+                    # ▼ ここを修正！ 列名が「芝・ダート」「芝」「ダート」でも track_type として認識させる
+                    elif clean_c in ['トラック', 'Track', 'track', '芝・ダート', '芝', 'ダート', 'コース', 'トラック種別']: col_mapping[c] = 'track_type'
+                
                 df_m = df_m.rename(columns=col_mapping)
                 break
         except Exception:
@@ -169,6 +167,7 @@ def load_and_process_master_data():
     horse_distance_features = {}
 
     if 'name' in df_m.columns:
+        has_track_col = 'track_type' in df_m.columns
         h_grouped = df_m.groupby('name').agg(
             avg_rank=('rank', 'mean'),
             best_rank=('rank', 'min'),
@@ -179,8 +178,10 @@ def load_and_process_master_data():
             avg_gap=('gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
             race_count=('rank', 'count'),
             sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
-            has_dirt_exp=('track_type', lambda x: any(str(t).strip() == 'ダート' for t in x if pd.notna(t)))
+            # ▼ ここを修正！「ダート」という文字が含まれていれば経験ありとする
+            has_dirt_exp=('track_type', lambda x: any('ダート' in str(t) for t in x if pd.notna(t))) if has_track_col else ('rank', lambda x: False)
         )
+        
         for h_name, row in h_grouped.iterrows():
             c_name = clean_str(h_name)
             if c_name:
@@ -194,7 +195,7 @@ def load_and_process_master_data():
                     'avg_gap': row['avg_gap'],
                     'race_count': row['race_count'],
                     'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡',
-                    'has_dirt_exp': row['has_dirt_exp']
+                    'has_dirt_exp': bool(row['has_dirt_exp']) if has_track_col else False
                 }
 
         if 'distance' in df_m.columns:
@@ -449,13 +450,10 @@ with tab1:
             l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
             score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + l3f_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
 
-        # --- 🐎【芝→ダート代わり（初ダート）の補正ロジック】---
-        # 今回のレースが「ダート」かつ、過去に一度もダート出走経験がない馬の場合、上がり3Fや過去の着順評価を大きく減点（ペナルティ）する
         if p_track == "ダート":
             for idx, row in df_input.iterrows():
                 if not row.get('has_dirt_exp', False):
-                    # 初ダート勢に対してスコアを大幅に割り引く（例: スコアを0.6倍にする、または数点マイナスする）
-                    score.iloc[idx] *= 0.6  # 必要に応じてペナルティの強さを調整可能
+                    score.iloc[idx] *= 0.6  
 
         exp_s = np.exp(score - score.max())
         df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
