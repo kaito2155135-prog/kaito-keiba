@@ -250,8 +250,7 @@ with tab1:
     input_data_list = []
     try:
         if raw_text.strip():
-            lines = [line.strip() for line in raw_text.strip().split('
-') if line.strip() != ""]
+            lines = [line.strip() for line in raw_text.strip().split('\n') if line.strip() != ""]
             i = 0
             while i < len(lines):
                 line = lines[i]
