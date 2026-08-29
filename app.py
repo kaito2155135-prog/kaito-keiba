@@ -37,7 +37,6 @@ def parse_corner_positions_from_row(row):
     c1, c4 = np.nan, np.nan
     corner_vals = []
     
-    # 1角〜4角の個別列を順番に走査して有効な数値を集める
     for col in ['通過順1角', '通過順1', '1角', '通過順2角', '通過順2', '2角', '通過順3角', '通過順3', '3角', '通過順4角', '通過順4', '4角']:
         if col in row and pd.notna(row[col]):
             try:
@@ -47,7 +46,6 @@ def parse_corner_positions_from_row(row):
             except:
                 pass
 
-    # 個別列から取れなかった場合のフォールバック（従来の文字列パース）
     if not corner_vals and 'corner' in row and pd.notna(row['corner']):
         try:
             s = str(row['corner']).strip()
@@ -59,15 +57,12 @@ def parse_corner_positions_from_row(row):
             pass
 
     if corner_vals:
-        # 4つ以上（全コーナー）ある場合は最初を1角、最後を4角とする
-        # 2つしかない（短距離などで3-4角のみ）場合は最初を3角（実質的な表示用1番目）、最後を4角とする
         c1 = corner_vals[0][1]
         c4 = corner_vals[-1][1]
 
     return c1, c4
 
 def parse_corner_string_input(val):
-    """テキスト入力などのコーナー文字列から0を除外してパースする"""
     try:
         s = str(val).strip()
         if not s or s == 'nan':
@@ -125,6 +120,7 @@ def load_and_process_master_data():
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
+                    elif clean_c in ['トラック', 'Track', 'track']: col_mapping[c] = 'track_type'
                 df_m = df_m.rename(columns=col_mapping)
                 break
         except Exception:
@@ -157,7 +153,6 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
-    # 行ごとに0を除外して正確に1角・4角を抽出
     parsed_corners = df_m.apply(parse_corner_positions_from_row, axis=1)
     df_m['corner_1st'] = [x[0] for x in parsed_corners]
     df_m['corner_4th'] = [x[1] for x in parsed_corners]
@@ -183,7 +178,8 @@ def load_and_process_master_data():
             avg_corner_4th=('corner_4th', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
             avg_gap=('gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
             race_count=('rank', 'count'),
-            sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡')
+            sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
+            has_dirt_exp=('track_type', lambda x: any(str(t).strip() == 'ダート' for t in x if pd.notna(t)))
         )
         for h_name, row in h_grouped.iterrows():
             c_name = clean_str(h_name)
@@ -197,7 +193,8 @@ def load_and_process_master_data():
                     'avg_corner_4th': row['avg_corner_4th'],
                     'avg_gap': row['avg_gap'],
                     'race_count': row['race_count'],
-                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡'
+                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡',
+                    'has_dirt_exp': row['has_dirt_exp']
                 }
 
         if 'distance' in df_m.columns:
@@ -337,7 +334,6 @@ with tab1:
 
                     clean_h_name = clean_str(h_name)
 
-                    # 名寄せ・キー検索の精度向上（完全一致または部分一致を許容）
                     target_key = None
                     if clean_h_name in horse_history_features:
                         target_key = clean_h_name
@@ -350,7 +346,7 @@ with tab1:
                     matched_hist = {
                         'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_gap': np.nan,
-                        'race_count': 0, 'sex': sex
+                        'race_count': 0, 'sex': sex, 'has_dirt_exp': False
                     }
                     
                     if target_key and target_key in horse_history_features:
@@ -374,7 +370,6 @@ with tab1:
                     c4_val = matched_hist.get('avg_corner_4th', np.nan)
                     gap_val = matched_hist.get('avg_gap', np.nan)
 
-                    # 短距離戦（例: 1200m以下など）の場合は1角が存在しないためNaN（または0）を維持する
                     is_short_distance = float(p_distance) <= 1200
                     if not is_short_distance:
                         if pd.isna(c1_val): c1_val = 5.0
@@ -398,7 +393,8 @@ with tab1:
                         'blinker': 0, 
                         'corner_1st': c1_val if not is_short_distance else np.nan,
                         'corner_4th': c4_val,
-                        'gap': gap_val
+                        'gap': gap_val,
+                        'has_dirt_exp': matched_hist.get('has_dirt_exp', False)
                     })
                     i = j - 1
                 i += 1
@@ -417,7 +413,8 @@ with tab1:
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
                 'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
                 'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
-                'corner_1st': c1, 'corner_4th': c4, 'gap': 0.0 if is_short_distance else (c4 - c1)
+                'corner_1st': c1, 'corner_4th': c4, 'gap': 0.0 if is_short_distance else (c4 - c1),
+                'has_dirt_exp': False
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
@@ -445,18 +442,23 @@ with tab1:
 
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
                 score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + l3f_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
-                exp_s = np.exp(score - score.max())
-                df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
             except Exception as e:
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
                 score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + l3f_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
-                exp_s = np.exp(score - score.max())
-                df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
         else:
             l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
             score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + l3f_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
-            exp_s = np.exp(score - score.max())
-            df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
+
+        # --- 🐎【芝→ダート代わり（初ダート）の補正ロジック】---
+        # 今回のレースが「ダート」かつ、過去に一度もダート出走経験がない馬の場合、上がり3Fや過去の着順評価を大きく減点（ペナルティ）する
+        if p_track == "ダート":
+            for idx, row in df_input.iterrows():
+                if not row.get('has_dirt_exp', False):
+                    # 初ダート勢に対してスコアを大幅に割り引く（例: スコアを0.6倍にする、または数点マイナスする）
+                    score.iloc[idx] *= 0.6  # 必要に応じてペナルティの強さを調整可能
+
+        exp_s = np.exp(score - score.max())
+        df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
@@ -475,11 +477,13 @@ with tab1:
             c_1st = row.get('corner_1st', np.nan)
             c_4th = row.get('corner_4th', 7.0)
             c_gap = row.get('gap', 0.0)
+            h_dirt_exp = row.get('has_dirt_exp', False)
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
+            dirt_tag = " ⚠️(初ダート)" if p_track == "ダート" and not h_dirt_exp else ""
 
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / {corner_str} / 展開逆行ギャップ: {c_gap:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / {corner_str} / 展開逆行ギャップ: {c_gap:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をPart2マスターに追加する（上がり3F＆通過順入力対応）")
@@ -531,7 +535,7 @@ with tab2:
                 'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
                 'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
                 'corner': r_corner, '通過順1角': c_1st_val, '通過順2角': c_4th_val, 'corner_1st': c_1st_val, 'corner_4th': c_4th_val, 'gap': gap_val,
-                'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
+                'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f, 'track_type': track_type
             })
 
     if st.button("🚀 追加データをPart2マスターに保存する！"):
