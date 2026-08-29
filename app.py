@@ -79,6 +79,8 @@ def load_and_process_master_data():
                    elif clean_c in ['場所', '開催', 'place']: col_mapping[c] = 'place'
                    elif clean_c in ['レース番', 'レース番号', 'R', 'race_no']: col_mapping[c] = 'race_no'
                df_m = df_m.rename(columns=col_mapping)
+               # 💡 重複した列名がある場合に最初の1つに絞ってエラーを防ぐ
+               df_m = df_m.loc[:, ~df_m.columns.duplicated()]
                break
        except Exception:
            continue
