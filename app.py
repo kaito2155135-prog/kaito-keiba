@@ -59,7 +59,8 @@ def parse_corner_positions_from_row(row):
             pass
 
     if corner_vals:
-        # リストの最初を1角、最後（距離が短くコーナー数が少ない場合は最後のコーナー）を最終コーナーとする
+        # 4つ以上（全コーナー）ある場合は最初を1角、最後を4角とする
+        # 2つしかない（短距離などで3-4角のみ）場合は最初を3角（実質的な表示用1番目）、最後を4角とする
         c1 = corner_vals[0][1]
         c4 = corner_vals[-1][1]
 
@@ -373,9 +374,17 @@ with tab1:
                     c4_val = matched_hist.get('avg_corner_4th', np.nan)
                     gap_val = matched_hist.get('avg_gap', np.nan)
 
-                    if pd.isna(c1_val): c1_val = 5.0
+                    # 短距離戦（例: 1200m以下など）の場合は1角が存在しないためNaN（または0）を維持する
+                    is_short_distance = float(p_distance) <= 1200
+                    if not is_short_distance:
+                        if pd.isna(c1_val): c1_val = 5.0
+                    
                     if pd.isna(c4_val): c4_val = 7.0
-                    if pd.isna(gap_val): gap_val = c4_val - c1_val
+                    
+                    if is_short_distance or pd.isna(c1_val):
+                        gap_val = 0.0 if is_short_distance else (c4_val - 5.0)
+                    else:
+                        if pd.isna(gap_val): gap_val = c4_val - c1_val
 
                     input_data_list.append({
                         'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
@@ -387,7 +396,7 @@ with tab1:
                         'time_sec': matched_hist['avg_time'] if matched_hist['avg_time'] > 0 else 0.0,
                         'last_3f': matched_hist['avg_last_3f'],
                         'blinker': 0, 
-                        'corner_1st': c1_val,
+                        'corner_1st': c1_val if not is_short_distance else np.nan,
                         'corner_4th': c4_val,
                         'gap': gap_val
                     })
@@ -399,15 +408,16 @@ with tab1:
     if len(input_data_list) == 0:
         st.warning("⚠️ テキスト未入力または解析対象外のため、デフォルトの8頭で表示しています。")
         np.random.seed(42)
+        is_short_distance = float(p_distance) <= 1200
         for i in range(8):
-            c1 = float(np.random.randint(1, 10))
+            c1 = np.nan if is_short_distance else float(np.random.randint(1, 10))
             c4 = float(np.random.randint(1, 10))
             input_data_list.append({
                 'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
                 'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
                 'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
-                'corner_1st': c1, 'corner_4th': c4, 'gap': c4 - c1
+                'corner_1st': c1, 'corner_4th': c4, 'gap': 0.0 if is_short_distance else (c4 - c1)
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
@@ -462,11 +472,14 @@ with tab1:
             h_l3f = row.get('last_3f', 35.0)
             h_odds = row.get('odds', 10.0)
             h_jockey = row.get('jockey', '不明')
-            c_1st = row.get('corner_1st', 5.0)
+            c_1st = row.get('corner_1st', np.nan)
             c_4th = row.get('corner_4th', 7.0)
-            c_gap = row.get('gap', 2.0)
+            c_gap = row.get('gap', 0.0)
 
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f} / 展開逆行ギャップ: {c_gap:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
+            corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
+
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / {corner_str} / 展開逆行ギャップ: {c_gap:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をPart2マスターに追加する（上がり3F＆通過順入力対応）")
