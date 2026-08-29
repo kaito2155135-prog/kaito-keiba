@@ -40,6 +40,22 @@ def parse_corner_position(val):
         pass
     return 8.0
 
+# 【追加】1〜4コーナーの通過順をそれぞれ個別に数値化する関数
+def parse_multi_corner(val, index):
+    try:
+        s = str(val).strip()
+        if '-' in s:
+            parts = s.split('-')
+            if len(parts) > index:
+                p = parts[index].strip()
+                if p.isdigit():
+                    return float(p)
+        elif index == 3 and s.isdigit(): # インデックス3（4角）で単一数値の場合
+            return float(s)
+    except:
+        pass
+    return 8.0
+
 def parse_time_to_sec(val):
     try:
         s = str(val).strip()
@@ -129,7 +145,18 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
-    df_m['corner_4th'] = df_m['corner'].apply(parse_corner_position) if 'corner' in df_m.columns else 8.0
+    # 【変更】1〜4コーナーすべての通過順を個別の特徴量として抽出 (計4個)
+    if 'corner' in df_m.columns:
+        df_m['corner_1st'] = df_m['corner'].apply(lambda x: parse_multi_corner(x, 0))
+        df_m['corner_2nd'] = df_m['corner'].apply(lambda x: parse_multi_corner(x, 1))
+        df_m['corner_3rd'] = df_m['corner'].apply(lambda x: parse_multi_corner(x, 2))
+        df_m['corner_4th'] = df_m['corner'].apply(lambda x: parse_multi_corner(x, 3))
+    else:
+        df_m['corner_1st'] = 8.0
+        df_m['corner_2nd'] = 8.0
+        df_m['corner_3rd'] = 8.0
+        df_m['corner_4th'] = 8.0
+
     df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
     jockey_win_rates = {}
@@ -142,13 +169,29 @@ def load_and_process_master_data():
     horse_distance_features = {}
 
     if 'name' in df_m.columns:
+        def calc_tactical_defiance(group):
+            if len(group) == 0:
+                return 0
+            last_row = group.iloc[-1]
+            c4 = parse_multi_corner(last_row.get('corner', '8'), 3)
+            l3f = last_row.get('last_3f', 35.0)
+            rk = last_row.get('rank', 5)
+
+            if c4 >= 10.0 and l3f <= 35.5 and rk <= 5:
+                return 1
+            elif c4 <= 3.0 and rk <= 3:
+                return 2
+            return 0
+
         h_grouped = df_m.groupby('name').agg(
             avg_rank=('rank', 'mean'),
             best_rank=('rank', 'min'),
             avg_time=('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
             avg_last_3f=('last_3f', 'mean'),
             race_count=('rank', 'count'),
-            sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡')
+            sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
+            last_track=('track', lambda x: x.iloc[-1] if len(x) > 0 and pd.notna(x.iloc[-1]) else '芝'),
+            tactical_defiance=('rank', lambda x: calc_tactical_defiance(df_m.loc[x.index]))
         )
         for h_name, row in h_grouped.iterrows():
             c_name = clean_str(h_name)
@@ -159,7 +202,9 @@ def load_and_process_master_data():
                     'avg_time': row['avg_time'] if not np.isnan(row['avg_time']) else 0.0,
                     'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
                     'race_count': row['race_count'],
-                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡'
+                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡',
+                    'last_track': str(row['last_track']).strip(),
+                    'tactical_defiance': int(row['tactical_defiance']) if not np.isnan(row['tactical_defiance']) else 0
                 }
 
         if 'distance' in df_m.columns:
@@ -205,7 +250,8 @@ with tab1:
     input_data_list = []
     try:
         if raw_text.strip():
-            lines = [line.strip() for line in raw_text.strip().split('\n') if line.strip() != ""]
+            lines = [line.strip() for line in raw_text.strip().split('
+') if line.strip() != ""]
             i = 0
             while i < len(lines):
                 line = lines[i]
@@ -228,7 +274,6 @@ with tab1:
                         block_lines.append(lines[j])
                         j += 1
 
-                    # 馬名の正確な抽出（マスターデータの完全一致を最優先。部分一致による誤爆・すり替わりを完全に防止）
                     for bl in block_lines:
                         clean_bl = clean_str(bl)
                         if clean_bl in horse_history_features:
@@ -294,17 +339,15 @@ with tab1:
 
                     clean_h_name = clean_str(h_name)
 
-                    # 【修正ポイント】完全一致のみ、またはテキストで取得した馬名がマスター側にそのまま存在する場合のみ採用する（部分一致による別馬へのすり替わりを禁止）
                     if clean_h_name not in horse_history_features:
                         matched_name = clean_h_name
                         for m_name in horse_history_features.keys():
-                            # 余計な部分一致（例: 「ラピス」が「セイウンラピス」に勝手に化ける現象）を防ぐため、完全一致または逆の包含関係のみ許可
                             if clean_h_name == m_name:
                                 matched_name = m_name
                                 break
                         clean_h_name = matched_name
 
-                    matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0, 'sex': sex}
+                    matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'race_count': 0, 'sex': sex, 'last_track': '芝', 'tactical_defiance': 0}
                     if clean_h_name in horse_history_features:
                         matched_hist = horse_history_features[clean_h_name].copy()
 
@@ -322,6 +365,9 @@ with tab1:
                                 matched_hist['avg_rank'] = d_dict[closest_dist]['avg_rank']
                                 matched_hist['avg_last_3f'] = d_dict[closest_dist]['avg_last_3f']
 
+                    dirt_change = 1 if (matched_hist.get('last_track') == '芝' and p_track == 'ダート') else 0
+                    tactical_defiance = matched_hist.get('tactical_defiance', 0)
+
                     input_data_list.append({
                         'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                         'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': clean_h_name, 'sex': sex, 'age': age, 'sire': '不明',
@@ -331,7 +377,9 @@ with tab1:
                         'past_best_rank': matched_hist['best_rank'],
                         'time_sec': matched_hist['avg_time'] if matched_hist['avg_time'] > 0 else 0.0,
                         'last_3f': matched_hist['avg_last_3f'],
-                        'blinker': 0, 'corner_4th': 8.0
+                        'blinker': 0, 'corner_1st': 8.0, 'corner_2nd': 8.0, 'corner_3rd': 8.0, 'corner_4th': 8.0,
+                        'dirt_change': dirt_change,
+                        'tactical_defiance': tactical_defiance
                     })
                     i = j - 1
                 i += 1
@@ -345,7 +393,9 @@ with tab1:
                 'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
                 'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
-                'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 'corner_4th': 8.0
+                'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0,
+                'corner_1st': 8.0, 'corner_2nd': 8.0, 'corner_3rd': 8.0, 'corner_4th': 8.0,
+                'dirt_change': 0, 'tactical_defiance': 0
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
@@ -357,35 +407,50 @@ with tab1:
         df_input['popularity'] = pd.to_numeric(df_input['popularity'], errors='coerce').fillna(99)
         df_input['distance'] = float(p_distance)
         df_input['condition'] = str(p_condition)
+        if 'dirt_change' not in df_input.columns:
+            df_input['dirt_change'] = 0
+        if 'tactical_defiance' not in df_input.columns:
+            df_input['tactical_defiance'] = 0
 
         if model is not None:
             try:
                 df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
                 df_full = df_full.loc[:, ~df_full.columns.duplicated()]
+                for col in ['dirt_change', 'tactical_defiance', 'corner_1st', 'corner_2nd', 'corner_3rd', 'corner_4th']:
+                    if col not in df_full.columns:
+                        df_full[col] = 0
+
                 for col in ['place', 'track', 'condition', 'sire', 'race_class']:
                     if col in df_full.columns:
                         df_full[col] = LabelEncoder().fit_transform(df_full[col].astype(str))
                 df_input_enc = df_full.tail(len(df_input)).copy()
-                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec', 'last_3f']
+
+                # 【変更】1〜4コーナーすべての通過順を特徴量リストに組み込み（計22個のファクター）
+                features = [
+                    'odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate',
+                    'place', 'track', 'condition', 'sire', 'blinker',
+                    'corner_1st', 'corner_2nd', 'corner_3rd', 'corner_4th',
+                    'race_class', 'time_sec', 'last_3f', 'dirt_change', 'tactical_defiance'
+                ]
                 for f in features:
                     if f not in df_input_enc.columns: df_input_enc[f] = 0
                 model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
-                score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
+                score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8 - df_input['dirt_change'] * 1.2 + df_input['tactical_defiance'] * 1.0
                 exp_s = np.exp(score - score.max())
                 df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
             except Exception as e:
-                score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+                score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0 - df_input['dirt_change'] * 1.2 + df_input['tactical_defiance'] * 1.0
                 exp_s = np.exp(score - score.max())
                 df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
         else:
-            score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+            score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0 - df_input['dirt_change'] * 1.2 + df_input['tactical_defiance'] * 1.0
             exp_s = np.exp(score - score.max())
             df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（上がり3F反映版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（全コーナー・上がり3F・展開逆行反映版）")
 
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
@@ -397,8 +462,13 @@ with tab1:
             h_l3f = row.get('last_3f', 35.0)
             h_odds = row.get('odds', 10.0)
             h_jockey = row.get('jockey', '不明')
+            h_dirt_chg = row.get('dirt_change', 0)
+            h_tactical = row.get('tactical_defiance', 0)
 
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            dirt_tag = " ⚠️[芝→ダート替わり]" if h_dirt_chg == 1 else ""
+            tactical_tag = " 🔥[展開逆行好走]" if h_tactical > 0 else ""
+
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag}{tactical_tag} (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をPart2マスターに追加する（上がり3F入力対応）")
@@ -440,20 +510,17 @@ with tab2:
                 r_time = st.text_input("走破タイム (例: 1:45.2)", "2:00.0", key=f"r_time_{i}")
                 r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
-            c_parts = [c.strip() for c in str(r_corner).split('-')]
-            c1 = c_parts[0] if len(c_parts) > 0 else ""
-            c2 = c_parts[1] if len(c_parts) > 1 else ""
-            c3 = c_parts[2] if len(c_parts) > 2 else ""
-            c4 = c_parts[3] if len(c_parts) > 3 else ""
-
             new_data_list.append({
                 'year': r_year, 'month': r_month, 'day': r_day,
                 'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
                 'race_class': race_class, 'waku': ((u_num-1)//2)+1, 'umaban': u_num, 'name': clean_str(r_name),
                 'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
                 'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
-                'corner': r_corner, 'corner_4th': parse_corner_position(r_corner),
-                '通過順1': c1, '通過順2': c2, '通過順3': c3, '通過順4': c4,
+                'corner': r_corner,
+                'corner_1st': parse_multi_corner(r_corner, 0),
+                'corner_2nd': parse_multi_corner(r_corner, 1),
+                'corner_3rd': parse_multi_corner(r_corner, 2),
+                'corner_4th': parse_multi_corner(r_corner, 3),
                 'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
             })
 
@@ -462,7 +529,7 @@ with tab2:
         df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
         df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
         st.balloons()
-        st.success("🎉 通過順1〜4の分解データ及び上がり3Fデータを含む結果がPart2マスターに保存されました！")
+        st.success("🎉 通過順1〜4の全コーナー分解データ及び上がり3Fデータを含む結果がPart2マスターに保存されました！")
 
 with tab3:
     st.subheader("🧠 ガチAIを再学習させる")
@@ -480,6 +547,9 @@ with tab3:
                     df_train['distance'] = 2000.0
                 if 'condition' not in df_train.columns:
                     df_train['condition'] = '良'
+                for col in ['dirt_change', 'tactical_defiance', 'corner_1st', 'corner_2nd', 'corner_3rd', 'corner_4th']:
+                    if col not in df_train.columns:
+                        df_train[col] = 0
 
                 if len(df_train) > 10000: df_train = df_train.sample(n=10000, random_state=42)
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
@@ -488,7 +558,13 @@ with tab3:
                     if col in df_train.columns:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
 
-                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_4th', 'race_class', 'time_sec', 'last_3f']
+                # 【変更】学習用特徴量に全コーナー（corner_1st, corner_2nd, corner_3rd, corner_4th）を追加
+                features = [
+                    'odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate',
+                    'place', 'track', 'condition', 'sire', 'blinker',
+                    'corner_1st', 'corner_2nd', 'corner_3rd', 'corner_4th',
+                    'race_class', 'time_sec', 'last_3f', 'dirt_change', 'tactical_defiance'
+                ]
                 for f in features:
                     if f not in df_train.columns: df_train[f] = 0
 
@@ -498,7 +574,7 @@ with tab3:
                 clf.fit(X, y)
                 joblib.dump(clf, 'keiba_ai_model.pkl')
                 st.balloons()
-                st.success("🎉 再学習完了！距離や馬場状態、上がり3Fのファクターも含めてモデルがアップデートされました！")
+                st.success("🎉 再学習完了！1〜4コーナーすべての通過順、上がり3F、ダート替わり、展開逆行ファクターを含めてモデルがアップデートされました！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
