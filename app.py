@@ -32,7 +32,7 @@ model = load_model()
 def parse_corner_positions(val):
     """
     コーナー通過順の文字列（例: '5-7-8-10' や '5-5-4-3'）から
-    1コーナー（または最初）の位置と、4コーナー（または最后）の位置を正確に抽出する。
+    1コーナー（または最初）の位置と、4コーナー（または最後）の位置を正確に抽出する。
     """
     try:
         s = str(val).strip()
@@ -527,7 +527,7 @@ with tab3:
                 clf = lgb.LGBMClassifier(random_state=42)
                 clf.fit(X, y)
                 joblib.dump(clf, 'keiba_ai_model.pkl')
-                 st.balloons()
+                st.balloons()
                 st.success("🎉 再学習完了！展開逆行ギャップや上がり3Fのファクターも含めてモデルがアップデートされました！")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
