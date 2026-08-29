@@ -31,33 +31,28 @@ model = load_model()
 
 def parse_corner_positions_from_row(row):
     """
-    マスターデータの行から「通過順1角」「通過順2角」等の列を最優先で取得し、
-    0や無効な値を除外して1角と4角のポジションを正確に抽出する。
+    マスターデータの行から「通過順1角」「通過順2角」などの列を優先して取得し、
+    0や無効な値を除外して1角と4角（または最終コーナー）のポジションを正確に抽出する。
     """
     c1, c4 = np.nan, np.nan
     
-    # 個別列名のチェック
-    for col in ['通過順1角', '通過順1', '1角', 'corner_1st']:
-        if col in row and pd.notna(row[col]):
-            try:
-                val = float(str(row[col]).strip())
-                if val > 0:
-                    c1 = val
-                    break
-            except:
-                pass
+    # 個別列がある場合の処理
+    for col_candidates, target_ref in [
+        (['通過順1角', '通過順1', '1角'], 'c1'),
+        (['通過順2角', '通過順4角', '通過順4', '4角', '通過順2'], 'c4')
+    ]:
+        for col in col_candidates:
+            if col in row and pd.notna(row[col]):
+                try:
+                    val = float(str(row[col]).strip())
+                    if val > 0:
+                        if target_ref == 'c1': c1 = val
+                        else: c4 = val
+                        break
+                except:
+                    pass
 
-    for col in ['通過順2角', '通過順4角', '通過順4', '4角', '通過順2', 'corner_4th']:
-        if col in row and pd.notna(row[col]):
-            try:
-                val = float(str(row[col]).strip())
-                if val > 0:
-                    c4 = val
-                    break
-            except:
-                pass
-
-    # 文字列 'corner' 列からのフォールバック
+    # 個別列から取れなかった場合、文字列の 'corner' 列があればフォールバック
     if (pd.isna(c1) or pd.isna(c4)) and 'corner' in row and pd.notna(row['corner']):
         try:
             s = str(row['corner']).strip()
@@ -77,6 +72,7 @@ def parse_corner_positions_from_row(row):
     return c1, c4
 
 def parse_corner_string_input(val):
+    """テキスト入力などのコーナー文字列から0を除外してパースする"""
     try:
         s = str(val).strip()
         if not s or s == 'nan':
@@ -122,6 +118,7 @@ def load_and_process_master_data():
             df_m = pd.read_csv(filename, encoding=enc, low_memory=False)
             if not df_m.empty:
                 df_m.columns = [str(c).strip() for c in df_m.columns]
+
                 col_mapping = {}
                 for c in df_m.columns:
                     clean_c = c.replace(" ", "").replace("　", "")
@@ -167,6 +164,7 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
+    # 行ごとに0を除外して正確に1角・4角を抽出
     parsed_corners = df_m.apply(parse_corner_positions_from_row, axis=1)
     df_m['corner_1st'] = [x[0] for x in parsed_corners]
     df_m['corner_4th'] = [x[1] for x in parsed_corners]
@@ -386,7 +384,6 @@ with tab1:
                     c4_val = matched_hist['avg_corner_4th']
                     gap_val = matched_hist['avg_gap']
 
-                    # 欠損している場合のフォールバック（1角は中団の5.0ではなく、データがない場合は安全なデフォルト値にするがNaN判定を厳密に）
                     if pd.isna(c1_val): c1_val = 5.0
                     if pd.isna(c4_val): c4_val = 7.0
                     if pd.isna(gap_val): gap_val = c4_val - c1_val
