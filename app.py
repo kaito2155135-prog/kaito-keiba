@@ -116,7 +116,6 @@ def load_and_process_master_data():
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
-                    # ▼ ここを修正！ 列名が「芝・ダート」「芝」「ダート」でも track_type として認識させる
                     elif clean_c in ['トラック', 'Track', 'track', '芝・ダート', '芝', 'ダート', 'コース', 'トラック種別']: col_mapping[c] = 'track_type'
                 
                 df_m = df_m.rename(columns=col_mapping)
@@ -178,7 +177,6 @@ def load_and_process_master_data():
             avg_gap=('gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
             race_count=('rank', 'count'),
             sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
-            # ▼ ここを修正！「ダート」という文字が含まれていれば経験ありとする
             has_dirt_exp=('track_type', lambda x: any('ダート' in str(t) for t in x if pd.notna(t))) if has_track_col else ('rank', lambda x: False)
         )
         
@@ -452,7 +450,8 @@ with tab1:
 
         if p_track == "ダート":
             for idx, row in df_input.iterrows():
-                if not row.get('has_dirt_exp', False):
+                # ▼ 修正: マスターデータにデータが存在し、かつ「ダート経験が一切ない馬」だけにマイナス補正をかける
+                if row.get('past_avg_rank', 5.0) != 5.0 and not row.get('has_dirt_exp', False):
                     score.iloc[idx] *= 0.6  
 
         exp_s = np.exp(score - score.max())
@@ -476,10 +475,13 @@ with tab1:
             c_4th = row.get('corner_4th', 7.0)
             c_gap = row.get('gap', 0.0)
             h_dirt_exp = row.get('has_dirt_exp', False)
+            has_history = (h_avg != 5.0)
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
-            dirt_tag = " ⚠️(初ダート)" if p_track == "ダート" and not h_dirt_exp else ""
+            
+            # ▼ 修正: 過去データがあり、ダート経験がない馬にのみ「初ダート」を表示する
+            dirt_tag = " ⚠️(初ダート)" if (p_track == "ダート" and has_history and not h_dirt_exp) else ""
 
             st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / {corner_str} / 展開逆行ギャップ: {c_gap:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
