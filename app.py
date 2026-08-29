@@ -37,7 +37,7 @@ def parse_corner_positions(val):
     try:
         s = str(val).strip()
         if not s or s == 'nan':
-            return 8.0, 8.0
+            return np.nan, np.nan
         
         for sep in [',', ' ', '/', '->', '－', '―']:
             s = s.replace(sep, '-')
@@ -50,7 +50,7 @@ def parse_corner_positions(val):
             return p_val, p_val
     except:
         pass
-    return 8.0, 8.0
+    return np.nan, np.nan
 
 def parse_time_to_sec(val):
     try:
@@ -78,22 +78,10 @@ def load_and_process_master_data():
     df_m = pd.DataFrame()
     for enc in ['cp932', 'utf-8-sig', 'utf-8']:
         try:
-            target_cols = [
-                'year', 'month', 'day', 'place', 'track', 'distance', 'condition',
-                'race_class', 'waku', 'umaban', 'name', 'sex', 'age', 'jockey',
-                'sire', 'weight', 'rank', 'odds', 'popularity', 'blinker', 'corner', 'time', 'last_3f',
-                '通過順1', '通過順2', '通過順3', '通過順4', '上がり3Fタイム',
-                '馬名', '競走馬名', '着順', '確定着順', '順位', 'タイム', '走破タイム', '走破時間',
-                '騎手', '性別', '距離', '馬場', '馬場状態', 'コーナー', '通過順', '上がり3F', '上り3F'
-            ]
-
             header_df = pd.read_csv(filename, encoding=enc, nrows=5)
             header_cols = [c.strip() for c in header_df.columns]
-            use_cols = [c for c in header_cols if c in target_cols]
-            if not use_cols:
-                use_cols = None
-
-            df_m = pd.read_csv(filename, encoding=enc, low_memory=False, usecols=use_cols)
+            
+            df_m = pd.read_csv(filename, encoding=enc, low_memory=False)
             if not df_m.empty:
                 df_m.columns = [str(c).strip() for c in df_m.columns]
 
@@ -104,7 +92,7 @@ def load_and_process_master_data():
                     elif clean_c in ['着順', '順位', '確定着順', 'Rank', 'RANK']: col_mapping[c] = 'rank'
                     elif clean_c in ['タイム', 'Time', 'TIME', '走破タイム', '走破時間']: col_mapping[c] = 'time'
                     elif clean_c in ['騎手', 'Jockey', 'jockey']: col_mapping[c] = 'jockey'
-                    elif clean_c in ['コーナー', '通過順', 'corner', '通過順1']: col_mapping[c] = 'corner'
+                    elif clean_c in ['コーナー', '通過順', 'corner', '通過順1', '通過順（4角）', '通過順(4角)' ]: col_mapping[c] = 'corner'
                     elif clean_c in ['上がり3F', '上り3F', 'last_3f', 'L3F', '上がり', '上り', '上がり3Fタイム', '上り3Fタイム']: col_mapping[c] = 'last_3f'
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
@@ -141,10 +129,15 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
-    # コーナー位置のパース処理（各行ごとに必ず個別の数値を抽出・反映）
-    corner_parsed = df_m['corner'].apply(parse_corner_positions) if 'corner' in df_m.columns else pd.Series([(8.0, 8.0)] * len(df_m))
-    df_m['corner_1st'] = [x[0] for x in corner_parsed]
-    df_m['corner_4th'] = [x[1] for x in corner_parsed]
+    # 過去レースのコーナー通過順を完全にパースして個別の行から正確に算出する
+    if 'corner' in df_m.columns:
+        parsed_corners = df_m['corner'].apply(parse_corner_positions)
+        df_m['corner_1st'] = [x[0] for x in parsed_corners]
+        df_m['corner_4th'] = [x[1] for x in parsed_corners]
+    else:
+        df_m['corner_1st'] = np.nan
+        df_m['corner_4th'] = np.nan
+
     df_m['gap'] = df_m['corner_4th'] - df_m['corner_1st']
     df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
@@ -163,9 +156,9 @@ def load_and_process_master_data():
             best_rank=('rank', 'min'),
             avg_time=('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
             avg_last_3f=('last_3f', 'mean'),
-            avg_corner_1st=('corner_1st', 'mean'),
-            avg_corner_4th=('corner_4th', 'mean'),
-            avg_gap=('gap', 'mean'),
+            avg_corner_1st=('corner_1st', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+            avg_corner_4th=('corner_4th', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+            avg_gap=('gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
             race_count=('rank', 'count'),
             sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡')
         )
@@ -177,9 +170,9 @@ def load_and_process_master_data():
                     'best_rank': row['best_rank'] if not np.isnan(row['best_rank']) else 5.0,
                     'avg_time': row['avg_time'] if not np.isnan(row['avg_time']) else 0.0,
                     'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
-                    'avg_corner_1st': row['avg_corner_1st'] if not np.isnan(row['avg_corner_1st']) else 5.0,
-                    'avg_corner_4th': row['avg_corner_4th'] if not np.isnan(row['avg_corner_4th']) else 8.0,
-                    'avg_gap': row['avg_gap'] if not np.isnan(row['avg_gap']) else 0.0,
+                    'avg_corner_1st': row['avg_corner_1st'],
+                    'avg_corner_4th': row['avg_corner_4th'],
+                    'avg_gap': row['avg_gap'],
                     'race_count': row['race_count'],
                     'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡'
                 }
@@ -188,9 +181,9 @@ def load_and_process_master_data():
             d_grouped = df_m.groupby(['name', 'distance']).agg(
                 avg_rank=('rank', 'mean'),
                 avg_last_3f=('last_3f', 'mean'),
-                avg_corner_1st=('corner_1st', 'mean'),
-                avg_corner_4th=('corner_4th', 'mean'),
-                avg_gap=('gap', 'mean'),
+                avg_corner_1st=('corner_1st', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+                avg_corner_4th=('corner_4th', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+                avg_gap=('gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
                 race_count=('rank', 'count')
             )
             for (h_name, dist), row in d_grouped.iterrows():
@@ -201,9 +194,9 @@ def load_and_process_master_data():
                     horse_distance_features[c_name][float(dist)] = {
                         'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
                         'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
-                        'avg_corner_1st': row['avg_corner_1st'] if not np.isnan(row['avg_corner_1st']) else 5.0,
-                        'avg_corner_4th': row['avg_corner_4th'] if not np.isnan(row['avg_corner_4th']) else 8.0,
-                        'avg_gap': row['avg_gap'] if not np.isnan(row['avg_gap']) else 0.0,
+                        'avg_corner_1st': row['avg_corner_1st'],
+                        'avg_corner_4th': row['avg_corner_4th'],
+                        'avg_gap': row['avg_gap'],
                         'race_count': row['race_count']
                     }
 
@@ -329,7 +322,12 @@ with tab1:
                                 break
                         clean_h_name = matched_name
 
-                    matched_hist = {'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0, 'avg_corner_1st': 5.0, 'avg_corner_4th': 8.0, 'avg_gap': 3.0, 'race_count': 0, 'sex': sex}
+                    # 過去レースデータから正確に取得（マスターにデータがない場合はNaNではなくデフォルト補完）
+                    matched_hist = {
+                        'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
+                        'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_gap': np.nan,
+                        'race_count': 0, 'sex': sex
+                    }
                     if clean_h_name in horse_history_features:
                         matched_hist = horse_history_features[clean_h_name].copy()
 
@@ -353,6 +351,15 @@ with tab1:
                                 matched_hist['avg_corner_4th'] = d_dict[closest_dist]['avg_corner_4th']
                                 matched_hist['avg_gap'] = d_dict[closest_dist]['avg_gap']
 
+                    # 過去データのコーナーやギャップが取得できなかった場合の厳密なフォールバック
+                    c1_val = matched_hist['avg_corner_1st']
+                    c4_val = matched_hist['avg_corner_4th']
+                    gap_val = matched_hist['avg_gap']
+
+                    if pd.isna(c1_val): c1_val = 5.0
+                    if pd.isna(c4_val): c4_val = 7.0
+                    if pd.isna(gap_val): gap_val = c4_val - c1_val
+
                     input_data_list.append({
                         'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                         'race_class': p_class, 'waku': waku, 'umaban': umaban, 'name': clean_h_name, 'sex': sex, 'age': age, 'sire': '不明',
@@ -363,9 +370,9 @@ with tab1:
                         'time_sec': matched_hist['avg_time'] if matched_hist['avg_time'] > 0 else 0.0,
                         'last_3f': matched_hist['avg_last_3f'],
                         'blinker': 0, 
-                        'corner_1st': matched_hist['avg_corner_1st'],
-                        'corner_4th': matched_hist['avg_corner_4th'],
-                        'gap': matched_hist['avg_gap']
+                        'corner_1st': c1_val,
+                        'corner_4th': c4_val,
+                        'gap': gap_val
                     })
                     i = j - 1
                 i += 1
@@ -376,8 +383,8 @@ with tab1:
         st.warning("⚠️ テキスト未入力または解析対象外のため、デフォルトの8頭で表示しています。")
         np.random.seed(42)
         for i in range(8):
-            c1 = float(np.random.randint(1, 12))
-            c4 = float(np.random.randint(1, 12))
+            c1 = float(np.random.randint(1, 10))
+            c4 = float(np.random.randint(1, 10))
             input_data_list.append({
                 'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
@@ -439,8 +446,8 @@ with tab1:
             h_odds = row.get('odds', 10.0)
             h_jockey = row.get('jockey', '不明')
             c_1st = row.get('corner_1st', 5.0)
-            c_4th = row.get('corner_4th', 8.0)
-            c_gap = row.get('gap', 3.0)
+            c_4th = row.get('corner_4th', 7.0)
+            c_gap = row.get('gap', 2.0)
 
             st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f} / 展開逆行ギャップ: {c_gap:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
@@ -485,7 +492,7 @@ with tab2:
                 r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
             c_1st_val, c_4th_val = parse_corner_positions(r_corner)
-            gap_val = c_4th_val - c_1st_val
+            gap_val = c_4th_val - c_1st_val if not pd.isna(c_1st_val) and not pd.isna(c_4th_val) else 0.0
 
             new_data_list.append({
                 'year': r_year, 'month': r_month, 'day': r_day,
@@ -512,7 +519,7 @@ with tab3:
             try:
                 import lightgbm as lgb
                 df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
-                for col_name, default_val in [('rank', 1), ('last_3f', 35.0), ('distance', 2000.0), ('condition', '良'), ('corner_1st', 5.0), ('corner_4th', 8.0), ('gap', 3.0)]:
+                for col_name, default_val in [('rank', 1), ('last_3f', 35.0), ('distance', 2000.0), ('condition', '良'), ('corner_1st', 5.0), ('corner_4th', 7.0), ('gap', 2.0)]:
                     if col_name not in df_train.columns:
                         df_train[col_name] = default_val
 
