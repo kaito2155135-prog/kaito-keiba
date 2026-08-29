@@ -342,45 +342,42 @@ with tab1:
 
                     clean_h_name = clean_str(h_name)
 
-                    if clean_h_name not in horse_history_features:
-                        matched_name = clean_h_name
+                    # 名寄せ・キー検索の精度向上（完全一致または部分一致を許容）
+                    target_key = None
+                    if clean_h_name in horse_history_features:
+                        target_key = clean_h_name
+                    else:
                         for m_name in horse_history_features.keys():
-                            if clean_h_name == m_name:
-                                matched_name = m_name
+                            if clean_h_name in m_name or m_name in clean_h_name:
+                                target_key = m_name
                                 break
-                        clean_h_name = matched_name
 
                     matched_hist = {
                         'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_gap': np.nan,
                         'race_count': 0, 'sex': sex
                     }
-                    if clean_h_name in horse_history_features:
-                        matched_hist = horse_history_features[clean_h_name].copy()
+                    
+                    if target_key and target_key in horse_history_features:
+                        matched_hist = horse_history_features[target_key].copy()
+                        clean_h_name = target_key
 
                     if matched_hist.get('sex') in ['牡', '牝', 'セン', 'セ']:
                         sex = matched_hist['sex']
 
                     if clean_h_name in horse_distance_features:
                         d_dict = horse_distance_features[clean_h_name]
-                        if float(p_distance) in d_dict:
-                            matched_hist['avg_rank'] = d_dict[float(p_distance)]['avg_rank']
-                            matched_hist['avg_last_3f'] = d_dict[float(p_distance)]['avg_last_3f']
-                            matched_hist['avg_corner_1st'] = d_dict[float(p_distance)]['avg_corner_1st']
-                            matched_hist['avg_corner_4th'] = d_dict[float(p_distance)]['avg_corner_4th']
-                            matched_hist['avg_gap'] = d_dict[float(p_distance)]['avg_gap']
+                        dist_val = float(p_distance)
+                        if dist_val in d_dict:
+                            matched_hist.update(d_dict[dist_val])
                         else:
-                            closest_dist = min(d_dict.keys(), key=lambda x: abs(x - float(p_distance)))
-                            if abs(closest_dist - float(p_distance)) <= 400:
-                                matched_hist['avg_rank'] = d_dict[closest_dist]['avg_rank']
-                                matched_hist['avg_last_3f'] = d_dict[closest_dist]['avg_last_3f']
-                                matched_hist['avg_corner_1st'] = d_dict[closest_dist]['avg_corner_1st']
-                                matched_hist['avg_corner_4th'] = d_dict[closest_dist]['avg_corner_4th']
-                                matched_hist['avg_gap'] = d_dict[closest_dist]['avg_gap']
+                            closest_dist = min(d_dict.keys(), key=lambda x: abs(x - dist_val))
+                            if abs(closest_dist - dist_val) <= 400:
+                                matched_hist.update(d_dict[closest_dist])
 
-                    c1_val = matched_hist['avg_corner_1st']
-                    c4_val = matched_hist['avg_corner_4th']
-                    gap_val = matched_hist['avg_gap']
+                    c1_val = matched_hist.get('avg_corner_1st', np.nan)
+                    c4_val = matched_hist.get('avg_corner_4th', np.nan)
+                    gap_val = matched_hist.get('avg_gap', np.nan)
 
                     if pd.isna(c1_val): c1_val = 5.0
                     if pd.isna(c4_val): c4_val = 7.0
