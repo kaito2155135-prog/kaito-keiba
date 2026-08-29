@@ -547,7 +547,7 @@ with tab3:
                     if col in df_train.columns:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
 
-                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', `jockey_win_rate`, 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'gap', 'race_class', 'time_sec', 'last_3f']
+                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'gap', 'race_class', 'time_sec', 'last_3f']
                 for f in features:
                     if f not in df_train.columns: df_train[f] = 0
 
