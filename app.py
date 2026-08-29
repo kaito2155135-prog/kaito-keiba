@@ -144,15 +144,12 @@ def load_and_process_master_data():
       df_m['corner_3rd'] = 8.0
       df_m['corner_4th'] = 8.0
 
-  # 【追加ポイント】レースごとの展開バイアス（4角平均）を算出して「展開利補正（pace_bias）」特徴量を生成
   if 'year' in df_m.columns and 'place' in df_m.columns:
       y_col = df_m['year'].astype(str) if 'year' in df_m.columns else '2026'
       m_col = df_m['month'].astype(str) if 'month' in df_m.columns else '1'
       d_col = df_m['day'].astype(str) if 'day' in df_m.columns else '1'
       df_m['race_id'] = y_col + "_" + m_col + "_" + d_col + "_" + df_m['place'].astype(str) + "_" + df_m['distance'].astype(str)
       race_avg_c4 = df_m.groupby('race_id')['corner_4th'].transform('mean')
-      # 展開バイアス値：(レース全体の4角平均) - (その馬自身の4角通過順)
-      # プラスが大きいほど「展開が向かなかった（後方からの追い込み等）」、マイナスは「前残り展開の恩恵等」
       df_m['pace_bias'] = race_avg_c4 - df_m['corner_4th']
   else:
       df_m['pace_bias'] = 0.0
@@ -265,18 +262,22 @@ with tab1:
                       block_lines.append(lines[j])
                       j += 1
 
+                  # --- 【修正箇所ここから】スマホのコピー等で「馬名」の行が独立していない場合の頑健な抽出ロジック ---
+                  # 1. ブロック内の行から、マスターに完全一致する馬名を探す
                   for bl in block_lines:
                       clean_bl = clean_str(bl)
                       if clean_bl in horse_history_features:
                           h_name = clean_bl
                           break
 
+                  # 2. マスターに直接無い場合、ネットケイバ等の「牡4」「牝4」「父」「母」などの定型ワードが含まれない、かつ一定文字数の文字列を馬名候補とする
                   if h_name.startswith("馬番"):
                       for bl in block_lines:
                           clean_b = clean_str(bl.replace("--", ""))
-                          if clean_b and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "kg"]) and len(clean_b) >= 2:
+                          if clean_b and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "セン", "kg", "斤量", "父", "母", "馬主", "調教師", "生産者", "全成績", "収得賞金"]) and len(clean_b) >= 2 and not clean_b.isdigit():
                               h_name = clean_b
                               break
+                  # --- 【修正箇所ここまで】 ---
 
                   for bl in block_lines:
                       if "データベース" in bl:
@@ -521,7 +522,6 @@ with tab2:
       df_new = pd.DataFrame(new_data_list)
       df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
 
-      # 保存時にもpace_biasを計算して付与しておく
       if 'year' in df_combined.columns and 'place' in df_combined.columns:
           df_combined['race_id'] = df_combined['year'].astype(str) + "_" + df_combined['month'].astype(str) + "_" + df_combined['day'].astype(str) + "_" + df_combined['place'].astype(str) + "_" + df_combined['distance'].astype(str)
           race_avg_c4 = df_combined.groupby('race_id')['corner_4th'].transform('mean')
