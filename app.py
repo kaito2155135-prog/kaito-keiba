@@ -31,43 +31,37 @@ model = load_model()
 
 def parse_corner_positions_from_row(row):
     """
-    マスターデータの行から「通過順1角」「通過順2角」などの列を優先して取得し、
-    0や無効な値を除外して1角と4角（または最終コーナー）のポジションを正確に抽出する。
+    マスターデータの行から「通過順1角」「通過順2角」「通過順3角」「通過順4角」を安全に取得し、
+    0や無効な値を除外した上で、1角と最後のコーナー（または4角）のポジションを抽出する。
     """
     c1, c4 = np.nan, np.nan
+    corner_vals = []
     
-    # 個別列がある場合の処理
-    for col_candidates, target_ref in [
-        (['通過順1角', '通過順1', '1角'], 'c1'),
-        (['通過順2角', '通過順4角', '通過順4', '4角', '通過順2'], 'c4')
-    ]:
-        for col in col_candidates:
-            if col in row and pd.notna(row[col]):
-                try:
-                    val = float(str(row[col]).strip())
-                    if val > 0:
-                        if target_ref == 'c1': c1 = val
-                        else: c4 = val
-                        break
-                except:
-                    pass
+    # 1角〜4角の個別列を順番に走査して有効な数値を集める
+    for col in ['通過順1角', '通過順1', '1角', '通過順2角', '通過順2', '2角', '通過順3角', '通過順3', '3角', '通過順4角', '通過順4', '4角']:
+        if col in row and pd.notna(row[col]):
+            try:
+                val = float(str(row[col]).strip())
+                if val > 0:
+                    corner_vals.append((col, val))
+            except:
+                pass
 
-    # 個別列から取れなかった場合、文字列の 'corner' 列があればフォールバック
-    if (pd.isna(c1) or pd.isna(c4)) and 'corner' in row and pd.notna(row['corner']):
+    # 個別列から取れなかった場合のフォールバック（従来の文字列パース）
+    if not corner_vals and 'corner' in row and pd.notna(row['corner']):
         try:
             s = str(row['corner']).strip()
             for sep in [',', ' ', '/', '->', '－', '―']:
                 s = s.replace(sep, '-')
             parts = [float(p.strip()) for p in s.split('-') if p.strip().replace('.', '', 1).isdigit()]
-            valid_parts = [p for p in parts if p > 0]
-            if len(valid_parts) >= 2:
-                if pd.isna(c1): c1 = valid_parts[0]
-                if pd.isna(c4): c4 = valid_parts[-1]
-            elif len(valid_parts) == 1:
-                if pd.isna(c1): c1 = valid_parts[0]
-                if pd.isna(c4): c4 = valid_parts[0]
+            corner_vals = [('str', p) for p in parts if p > 0]
         except:
             pass
+
+    if corner_vals:
+        # リストの最初を1角、最後（距離が短くコーナー数が少ない場合は最後のコーナー）を最終コーナーとする
+        c1 = corner_vals[0][1]
+        c4 = corner_vals[-1][1]
 
     return c1, c4
 
@@ -553,7 +547,7 @@ with tab3:
                     if col in df_train.columns:
                         df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
 
-                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'gap', 'race_class', 'time_sec', 'last_3f']
+                features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', `jockey_win_rate`, 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'gap', 'race_class', 'time_sec', 'last_3f']
                 for f in features:
                     if f not in df_train.columns: df_train[f] = 0
 
