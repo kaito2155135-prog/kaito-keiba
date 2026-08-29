@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 st.title("🐎【展開利・上がり3F特化・全コーナー対応版】スマホで育てる！競馬AIマスターアプリ")
-st.write("直近データ全行 ＆ 全コーナー（1角〜4角）＋展開バイアス補正エンジン稼働中！✨🔥")
+st.write("直近データ全行 ＆ 全コーナー（1角〜4角）＋レース内相対・展開バイアス補正エンジン稼働中！✨🔥")
 
 def clean_str(s):
   if not s:
@@ -144,16 +144,6 @@ def load_and_process_master_data():
       df_m['corner_3rd'] = 8.0
       df_m['corner_4th'] = 8.0
 
-  if 'year' in df_m.columns and 'place' in df_m.columns:
-      y_col = df_m['year'].astype(str) if 'year' in df_m.columns else '2026'
-      m_col = df_m['month'].astype(str) if 'month' in df_m.columns else '1'
-      d_col = df_m['day'].astype(str) if 'day' in df_m.columns else '1'
-      df_m['race_id'] = y_col + "_" + m_col + "_" + d_col + "_" + df_m['place'].astype(str) + "_" + df_m['distance'].astype(str)
-      race_avg_c4 = df_m.groupby('race_id')['corner_4th'].transform('mean')
-      df_m['pace_bias'] = race_avg_c4 - df_m['corner_4th']
-  else:
-      df_m['pace_bias'] = 0.0
-
   df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
   jockey_win_rates = {}
@@ -176,8 +166,7 @@ def load_and_process_master_data():
           avg_c1=('corner_1st', 'mean'),
           avg_c2=('corner_2nd', 'mean'),
           avg_c3=('corner_3rd', 'mean'),
-          avg_c4=('corner_4th', 'mean'),
-          avg_pace_bias=('pace_bias', 'mean')
+          avg_c4=('corner_4th', 'mean')
       )
       for h_name, row in h_grouped.iterrows():
           c_name = clean_str(h_name)
@@ -192,8 +181,7 @@ def load_and_process_master_data():
                   'avg_c1': row['avg_c1'] if not np.isnan(row['avg_c1']) else 8.0,
                   'avg_c2': row['avg_c2'] if not np.isnan(row['avg_c2']) else 8.0,
                   'avg_c3': row['avg_c3'] if not np.isnan(row['avg_c3']) else 8.0,
-                  'avg_c4': row['avg_c4'] if not np.isnan(row['avg_c4']) else 8.0,
-                  'avg_pace_bias': row['avg_pace_bias'] if not np.isnan(row['avg_pace_bias']) else 0.0
+                  'avg_c4': row['avg_c4'] if not np.isnan(row['avg_c4']) else 8.0
               }
 
       if 'distance' in df_m.columns:
@@ -220,7 +208,7 @@ df_m_auto, jockey_win_rates, horse_history_features, horse_distance_features = l
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-  st.subheader("🚀 勝ち馬のガチ予測（展開利・全コーナー＆上がり3Fデータ反映版）")
+  st.subheader("🚀 勝ち馬のガチ予測（レース内相対展開バイアス＆上がり3F反映版）")
 
   col_p1, col_p2, col_p3 = st.columns(3)
   with col_p1:
@@ -262,22 +250,18 @@ with tab1:
                       block_lines.append(lines[j])
                       j += 1
 
-                  # --- 【修正箇所ここから】スマホのコピー等で「馬名」の行が独立していない場合の頑健な抽出ロジック ---
-                  # 1. ブロック内の行から、マスターに完全一致する馬名を探す
                   for bl in block_lines:
                       clean_bl = clean_str(bl)
                       if clean_bl in horse_history_features:
                           h_name = clean_bl
                           break
 
-                  # 2. マスターに直接無い場合、ネットケイバ等の「牡4」「牝4」「父」「母」などの定型ワードが含まれない、かつ一定文字数の文字列を馬名候補とする
                   if h_name.startswith("馬番"):
                       for bl in block_lines:
                           clean_b = clean_str(bl.replace("--", ""))
                           if clean_b and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "セン", "kg", "斤量", "父", "母", "馬主", "調教師", "生産者", "全成績", "収得賞金"]) and len(clean_b) >= 2 and not clean_b.isdigit():
                               h_name = clean_b
                               break
-                  # --- 【修正箇所ここまで】 ---
 
                   for bl in block_lines:
                       if "データベース" in bl:
@@ -330,7 +314,6 @@ with tab1:
                               pass
 
                   clean_h_name = clean_str(h_name)
-
                   if clean_h_name not in horse_history_features:
                       matched_name = clean_h_name
                       for m_name in horse_history_features.keys():
@@ -341,7 +324,7 @@ with tab1:
 
                   matched_hist = {
                       'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
-                      'race_count': 0, 'sex': sex, 'avg_c1': 8.0, 'avg_c2': 8.0, 'avg_c3': 8.0, 'avg_c4': 8.0, 'avg_pace_bias': 0.0
+                      'race_count': 0, 'sex': sex, 'avg_c1': 8.0, 'avg_c2': 8.0, 'avg_c3': 8.0, 'avg_c4': 8.0
                   }
                   if clean_h_name in horse_history_features:
                       matched_hist = horse_history_features[clean_h_name].copy()
@@ -373,8 +356,7 @@ with tab1:
                       'corner_1st': matched_hist['avg_c1'],
                       'corner_2nd': matched_hist['avg_c2'],
                       'corner_3rd': matched_hist['avg_c3'],
-                      'corner_4th': matched_hist['avg_c4'],
-                      'pace_bias': matched_hist['avg_pace_bias']
+                      'corner_4th': matched_hist['avg_c4']
                   })
                   i = j - 1
               i += 1
@@ -389,11 +371,11 @@ with tab1:
               'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
               'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
               'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0,
-              'corner_1st': 8.0, 'corner_2nd': 8.0, 'corner_3rd': 8.0, 'corner_4th': 8.0, 'pace_bias': 0.0
+              'corner_1st': float(i+1), 'corner_2nd': float(i+1), 'corner_3rd': float(i+1), 'corner_4th': float(i+1)
           })
   else:
       matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
-      st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭** / Part2総読込行数: {len(df_m_auto):,})")
+      st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭**)")
 
   if st.button("🚀 ガチ予測を実行する！"):
       df_input = pd.DataFrame(input_data_list)
@@ -401,6 +383,11 @@ with tab1:
       df_input['popularity'] = pd.to_numeric(df_input['popularity'], errors='coerce').fillna(99)
       df_input['distance'] = float(p_distance)
       df_input['condition'] = str(p_condition)
+
+      # --- 【今回のレース内での相対的な展開利（pace_bias）を動的計算】 ---
+      # 出走メンバー全員の平均4角位置の平均値を算出し、それに対して「平均より前につけられるか」「後ろから速い上がりを使えるか」を数値化
+      avg_field_c4 = df_input['corner_4th'].mean()
+      df_input['pace_bias'] = avg_field_c4 - df_input['corner_4th']  # プラスなら平均より前（先行有利）、マイナスなら後方（差し・追込）
 
       if model is not None:
           try:
@@ -425,21 +412,22 @@ with tab1:
                   if f not in df_input_enc.columns: df_input_enc[f] = 0
               model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
-              score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['pace_bias'].clip(lower=0) * 2.5 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 0.8
+              # バランスの取れたスコア算出（1頭への極端な集中を防ぐためロジック調整済み）
+              score = model_probs * 2.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.2 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['pace_bias'].clip(lower=-3, upper=3) * 0.8 + df_input['jockey_win_rate'] * 1.5 + (1.0 / np.log1p(df_input['odds'])) * 0.5
               exp_s = np.exp(score - score.max())
               df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
           except Exception as e:
-              score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['pace_bias'].clip(lower=0) * 2.5 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+              score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['pace_bias'].clip(lower=-3, upper=3) * 0.8 + df_input['jockey_win_rate'] * 1.5 + (1.0 / np.log1p(df_input['odds'])) * 0.8
               exp_s = np.exp(score - score.max())
               df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
       else:
-          score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.2 + df_input['pace_bias'].clip(lower=0) * 2.5 + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.0
+          score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + (38.0 - df_input['last_3f']).clip(lower=0) * 1.0 + df_input['pace_bias'].clip(lower=-3, upper=3) * 0.8 + df_input['jockey_win_rate'] * 1.5 + (1.0 / np.log1p(df_input['odds'])) * 0.8
           exp_s = np.exp(score - score.max())
           df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
       df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
       st.balloons()
-      st.subheader("🎯 ガチAI予測結果ランキング（展開利・全コーナー・上がり3F反映版）")
+      st.subheader("🎯 ガチAI予測結果ランキング（レース内相対展開バイアス反映版）")
 
       for idx, row in df_input.iterrows():
           u_num = row.get('umaban', idx+1)
@@ -455,10 +443,10 @@ with tab1:
           c1 = row.get('corner_1st', 8.0)
           c4 = row.get('corner_4th', 8.0)
 
-          st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 通過順[1角->4角]: {c1:.1f}→{c4:.1f} / 展開利補正: {h_bias:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+          st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / 通過順[1角->4角]: {c1:.1f}→{c4:.1f} / 相対展開利: {h_bias:+.1f} / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
-  st.subheader("📝 レース結果をPart2マスターに追加する（全コーナー＆上がり3F入力対応）")
+  st.subheader("📝 レース結果をPart2マスターに追加する")
   col_d1, col_d2, col_d3 = st.columns(3)
   with col_d1: r_year = st.number_input("年", min_value=2000, max_value=2030, value=2026, key="r_year")
   with col_d2: r_month = st.number_input("月", min_value=1, max_value=12, value=6, key="r_month")
@@ -497,12 +485,6 @@ with tab2:
               r_time = st.text_input("走破タイム (例: 1:45.2)", "2:00.0", key=f"r_time_{i}")
               r_l3f = st.number_input("上がり3Fタイム (例: 34.5)", min_value=25.0, max_value=50.0, value=35.0, step=0.1, key=f"r_l3f_{i}")
 
-          c_parts = [c.strip() for c in str(r_corner).split('-')]
-          c1 = c_parts[0] if len(c_parts) > 0 else ""
-          c2 = c_parts[1] if len(c_parts) > 1 else ""
-          c3 = c_parts[2] if len(c_parts) > 2 else ""
-          c4 = c_parts[3] if len(c_parts) > 3 else ""
-
           new_data_list.append({
               'year': r_year, 'month': r_month, 'day': r_day,
               'place': race_place, 'track': track_type, 'distance': distance, 'condition': condition,
@@ -514,22 +496,15 @@ with tab2:
               'corner_2nd': parse_multi_corner(r_corner, 1),
               'corner_3rd': parse_multi_corner(r_corner, 2),
               'corner_4th': parse_multi_corner(r_corner, 3),
-              '通過順1': c1, '通過順2': c2, '通過順3': c3, '通過順4': c4,
               'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
           })
 
   if st.button("🚀 追加データをPart2マスターに保存する！"):
       df_new = pd.DataFrame(new_data_list)
       df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
-
-      if 'year' in df_combined.columns and 'place' in df_combined.columns:
-          df_combined['race_id'] = df_combined['year'].astype(str) + "_" + df_combined['month'].astype(str) + "_" + df_combined['day'].astype(str) + "_" + df_combined['place'].astype(str) + "_" + df_combined['distance'].astype(str)
-          race_avg_c4 = df_combined.groupby('race_id')['corner_4th'].transform('mean')
-          df_combined['pace_bias'] = race_avg_c4 - df_combined['corner_4th']
-
       df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
       st.balloons()
-      st.success("🎉 展開利データ（pace_bias）を含む結果がPart2マスターに保存されました！")
+      st.success("🎉 結果がPart2マスターに保存されました！")
 
 with tab3:
   st.subheader("🧠 ガチAIを再学習させる")
@@ -539,17 +514,12 @@ with tab3:
           try:
               import lightgbm as lgb
               df_train = df_m_auto.copy().loc[:, ~df_m_auto.columns.duplicated()]
-              if 'rank' not in df_train.columns:
-                  df_train['rank'] = 1
-              if 'last_3f' not in df_train.columns:
-                  df_train['last_3f'] = 35.0
-              if 'distance' not in df_train.columns:
-                  df_train['distance'] = 2000.0
-              if 'condition' not in df_train.columns:
-                  df_train['condition'] = '良'
+              if 'rank' not in df_train.columns: df_train['rank'] = 1
+              if 'last_3f' not in df_train.columns: df_train['last_3f'] = 35.0
+              if 'distance' not in df_train.columns: df_train['distance'] = 2000.0
+              if 'condition' not in df_train.columns: df_train['condition'] = '良'
               for col in ['corner_1st', 'corner_2nd', 'corner_3rd', 'corner_4th', 'pace_bias']:
-                  if col not in df_train.columns:
-                      df_train[col] = 0.0
+                  if col not in df_train.columns: df_train[col] = 0.0
 
               if len(df_train) > 10000: df_train = df_train.sample(n=10000, random_state=42)
               df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
@@ -573,7 +543,7 @@ with tab3:
               clf.fit(X, y)
               joblib.dump(clf, 'keiba_ai_model.pkl')
               st.balloons()
-              st.success("🎉 再学習完了！「展開利補正（pace_bias）」を含む21個のファクターでモデルがアップデートされました！")
+              st.success("🎉 再学習完了！")
           except Exception as e:
               st.warning(f"⚠️ 学習エラー: {e}")
   else:
