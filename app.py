@@ -17,7 +17,11 @@ st.write("直近5走の平均をベースにしつつ、同条件（同距離）
 def clean_str(s):
     if not s:
         return ""
-    return unicodedata.normalize('NFKC', str(s)).replace(" ", "").replace("　", "").strip()
+    # NFKC正規化に加え、スペースや特殊文字、末尾のゴミなどを完全に除去
+    res = unicodedata.normalize('NFKC', str(s))
+    for c in [" ", "　", "\t", "\n", "\r", "・", "."]:
+        res = res.replace(c, "")
+    return res.strip()
 
 def load_model():
     try:
