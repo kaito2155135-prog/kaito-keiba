@@ -436,6 +436,9 @@ with tab1:
         df_input['distance'] = float(p_distance)
         df_input['condition'] = str(p_condition)
 
+        # -------------------------------------------------------------------------
+        # 修正版スコア計算：基礎能力・上がり・「適切な」展開逆行ギャップの統合ロジック
+        # -------------------------------------------------------------------------
         if model is not None:
             try:
                 df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
@@ -449,22 +452,41 @@ with tab1:
                     if f not in df_input_enc.columns: df_input_enc[f] = 0
                 model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
+                # 1. 基礎能力（直近の平均着順）をベースの評価軸にする（悪い馬は大きくマイナス）
+                rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
-                reverse_bonus = df_input['true_reverse_gap'].abs() * 1.2
-                score = model_probs * 3.0 + (6.0 - df_input['past_avg_rank']).clip(lower=0) * 1.5 + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
-            except Exception as e:
-                l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
-                reverse_bonus = df_input['true_reverse_gap'].abs() * 1.2
-                score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
-        else:
-            l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
-            reverse_bonus = df_input['true_reverse_gap'].abs() * 1.2
-            score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+                
+                # 2. 真の展開逆行ボーナス：「直近平均着順が7着以内の実力馬」のみにプラスを付与し、大敗馬は除外
+                is_capable = df_input['past_avg_rank'] <= 7.0
+                reverse_val = df_input['true_reverse_gap'].abs()
+                reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
 
+                score = model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+            except Exception as e:
+                rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
+                l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
+                is_capable = df_input['past_avg_rank'] <= 7.0
+                reverse_val = df_input['true_reverse_gap'].abs()
+                reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
+                score = rank_score + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+        else:
+            rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
+            l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
+            is_capable = df_input['past_avg_rank'] <= 7.0
+            reverse_val = df_input['true_reverse_gap'].abs()
+            reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
+            score = rank_score + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+
+        # ダート戦における初ダート判定の適正化（大敗馬は厳しく、ある程度走れる馬のペナルティは緩和）
         if p_track == "ダート":
             for idx, row in df_input.iterrows():
-                if row.get('past_avg_rank', 5.0) != 5.0 and not row.get('has_dirt_exp', False):
-                    score.iloc[idx] *= 0.6  
+                avg_r = row.get('past_avg_rank', 5.0)
+                has_dirt = row.get('has_dirt_exp', False)
+                if avg_r != 5.0 and not has_dirt:
+                    if avg_r >= 8.0:
+                        score.iloc[idx] *= 0.25
+                    else:
+                        score.iloc[idx] *= 0.85
 
         exp_s = np.exp(score - score.max())
         df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
