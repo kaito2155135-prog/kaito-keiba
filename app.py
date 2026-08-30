@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【真の展開逆行・全履歴評価版】スマホで育てる！競馬AIマスターアプリ")
-st.write("過去全レースの展開バイアス＆通過順推移の完全表示対応！✨🔥")
+st.title("🐎【真の展開逆行・直近調子重視版】スマホで育てる！競馬AIマスターアプリ")
+st.write("直近レースの着順を最優先で評価する安全チューニング版！✨🔥")
 
 def clean_str(s):
     if not s:
@@ -183,19 +183,26 @@ def load_and_process_master_data():
             for t in track_series:
                 if pd.notna(t):
                     s_val = clean_str(str(t))
-                    # 修正：純粋に「ダ」または「ダート」という文字が含まれていれば経験ありとする
                     if 'ダ' in s_val or 'ダート' in s_val:
                         return True
             return False
 
+        # 修正: 直近数走（最大5走）の平均着順を計算するロジックを追加
+        def recent_mean_rank(series):
+            # 後ろ（直近）の最大5走を切り出して平均を取る
+            recent_vals = series.dropna().tail(5)
+            if len(recent_vals) > 0:
+                return recent_vals.mean()
+            return 5.0
+
         agg_dict = {
-            'avg_rank': ('rank', 'mean'),
+            'avg_rank': ('rank', recent_mean_rank),  # 全体平均から直近重視の平均に変更
             'best_rank': ('rank', 'min'),
             'avg_time': ('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
-            'avg_last_3f': ('last_3f', 'mean'),
-            'avg_corner_1st': ('corner_1st', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
-            'avg_corner_4th': ('corner_4th', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
-            'avg_true_reverse_gap': ('true_reverse_gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+            'avg_last_3f': ('last_3f', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else 35.0),
+            'avg_corner_1st': ('corner_1st', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
+            'avg_corner_4th': ('corner_4th', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
+            'avg_true_reverse_gap': ('true_reverse_gap', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
             'race_count': ('rank', 'count'),
             'sex': ('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡')
         }
@@ -223,11 +230,11 @@ def load_and_process_master_data():
 
         if 'distance' in df_m.columns:
             d_grouped = df_m.groupby(['name', 'distance']).agg(
-                avg_rank=('rank', 'mean'),
-                avg_last_3f=('last_3f', 'mean'),
-                avg_corner_1st=('corner_1st', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
-                avg_corner_4th=('corner_4th', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
-                avg_true_reverse_gap=('true_reverse_gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+                avg_rank=('rank', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else 5.0),
+                avg_last_3f=('last_3f', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else 35.0),
+                avg_corner_1st=('corner_1st', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else np.nan),
+                avg_corner_4th=('corner_4th', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else np.nan),
+                avg_true_reverse_gap=('true_reverse_gap', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else np.nan),
                 race_count=('rank', 'count')
             )
             for (h_name, dist), row in d_grouped.iterrows():
@@ -251,7 +258,7 @@ df_m_auto, jockey_win_rates, horse_history_features, horse_distance_features = l
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（真の展開逆行評価反映版）")
+    st.subheader("🚀 勝ち馬のガチ予測（直近調子重視・真の展開逆行評価版）")
 
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -487,7 +494,7 @@ with tab1:
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（真の展開逆行評価反映版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（直近調子重視版）")
 
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
