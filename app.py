@@ -119,7 +119,7 @@ def load_and_process_master_data():
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
-                    elif clean_c in ['トラック', 'Track', 'track', '芝ダート', '芝・ダート', 'コース', 'トラック種別']: col_mapping[c] = 'track_type'
+                    elif clean_c in ['トラック', 'Track', 'track', 'コース', 'トラック種別']: col_mapping[c] = 'track'
                     elif clean_c in ['開催', '場所', '競馬場', 'Place', 'place']: col_mapping[c] = 'place'
                     elif clean_c in ['レースID', 'race_id', 'RaceID', 'R_ID']: col_mapping[c] = 'race_id'
                 
@@ -160,6 +160,11 @@ def load_and_process_master_data():
     else:
         df_m['place'] = '東京'
 
+    if 'track' in df_m.columns:
+        df_m['track'] = df_m['track'].astype(str).str.strip()
+    else:
+        df_m['track'] = '芝'
+
     parsed_corners = df_m.apply(parse_corner_positions_from_row, axis=1)
     df_m['corner_1st'] = [x[0] for x in parsed_corners]
     df_m['corner_4th'] = [x[1] for x in parsed_corners]
@@ -199,7 +204,9 @@ def load_and_process_master_data():
             'avg_corner_4th': ('corner_4th', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
             'avg_true_reverse_gap': ('true_reverse_gap', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
             'race_count': ('rank', 'count'),
-            'sex': ('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡')
+            'sex': ('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
+            'has_dirt_exp': ('track', lambda x: (x.str.contains('ダート')).any()),
+            'has_turf_exp': ('track', lambda x: (x.str.contains('芝')).any())
         }
 
         h_grouped = df_m.groupby('name').agg(**agg_dict)
@@ -216,7 +223,9 @@ def load_and_process_master_data():
                     'avg_corner_4th': row['avg_corner_4th'],
                     'avg_true_reverse_gap': row['avg_true_reverse_gap'],
                     'race_count': row['race_count'],
-                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡'
+                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡',
+                    'has_dirt_exp': row['has_dirt_exp'],
+                    'has_turf_exp': row['has_turf_exp']
                 }
 
         if 'place' in df_m.columns and 'distance' in df_m.columns:
@@ -369,7 +378,7 @@ with tab1:
                     matched_hist = {
                         'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_true_reverse_gap': 0.0,
-                        'race_count': 0, 'sex': sex
+                        'race_count': 0, 'sex': sex, 'has_dirt_exp': True, 'has_turf_exp': True
                     }
                     
                     if target_key and target_key in horse_history_features:
@@ -416,7 +425,10 @@ with tab1:
                         'blinker': 0, 
                         'corner_1st': c1_val,
                         'corner_4th': c4_val,
-                        'true_reverse_gap': true_gap
+                        'true_reverse_gap': true_gap,
+                        'has_dirt_exp': matched_hist.get('has_dirt_exp', True),
+                        'has_turf_exp': matched_hist.get('has_turf_exp', True),
+                        'has_history': matched_hist['race_count'] > 0 if 'race_count' in matched_hist else (target_key is not None)
                     })
                     i = j - 1
                 i += 1
@@ -432,7 +444,8 @@ with tab1:
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
                 'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
                 'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
-                'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0
+                'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0,
+                'has_dirt_exp': True, 'has_turf_exp': True, 'has_history': False
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
@@ -500,11 +513,24 @@ with tab1:
             c_1st = row.get('corner_1st', np.nan)
             c_4th = row.get('corner_4th', 7.0)
             t_gap = row.get('true_reverse_gap', 0.0)
+            
+            # 初ダート・初芝タグの判定
+            is_dirt_race = (p_track == "ダート")
+            is_turf_race = (p_track == "芝")
+            has_history = row.get('has_history', False)
+            has_dirt_exp = row.get('has_dirt_exp', True)
+            has_turf_exp = row.get('has_turf_exp', True)
+
+            condition_tag = ""
+            if is_dirt_race and has_history and not has_dirt_exp:
+                condition_tag = " ⚠️(初ダート)"
+            elif is_turf_race and has_history and not has_turf_exp:
+                condition_tag = " ⚠️(初芝)"
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
 
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 調整平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{condition_tag} (予測勝率: **{h_prob:.2f}%** / 調整平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をPart2マスターに追加する")
@@ -555,7 +581,7 @@ with tab2:
                 'sex': '牡', 'age': r_age, 'jockey': r_jockey, 'sire': r_sire, 'weight': r_weight,
                 'rank': r_rank, 'odds': r_odds, 'popularity': r_pop, 'blinker': r_blinker,
                 'corner': r_corner, 'corner_1st': c_1st_val, 'corner_4th': c_4th_val,
-                'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f, 'track_type': track_type
+                'time': r_time, 'time_sec': parse_time_to_sec(r_time), 'last_3f': r_l3f
             })
 
     if st.button("🚀 追加データをPart2マスターに保存する！"):
