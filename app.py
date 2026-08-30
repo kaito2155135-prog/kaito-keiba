@@ -182,9 +182,9 @@ def load_and_process_master_data():
                 return False
             for t in track_series:
                 if pd.notna(t):
-                    s_val = str(t).strip()
-                    # 修正：芝を含まず、かつ「ダート」または単独の「ダ」が含まれる場合のみダートと判定
-                    if ('芝' not in s_val) and ('ダート' in s_val or 'dirt' in s_val.lower() or s_val == 'ダ'):
+                    s_val = clean_str(str(t))
+                    # 修正：純粋に「ダ」または「ダート」という文字が含まれていれば経験ありとする
+                    if 'ダ' in s_val or 'ダート' in s_val:
                         return True
             return False
 
@@ -571,7 +571,7 @@ with tab2:
         st.success("🎉 結果データがPart2マスターに保存されました！")
 
 with tab3:
-    st.subheader("🧠 ガチAIを再学習させる")
+    st.subheader("📝 ガチAIを再学習させる")
     if not df_m_auto.empty:
         st.success(f"📂 Part2マスターデータ読み込み成功！ (読込行数: {len(df_m_auto):,})")
         if st.button("🚀 AIを再学習・アップデートする！"):
