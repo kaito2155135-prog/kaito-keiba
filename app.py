@@ -183,7 +183,8 @@ def load_and_process_master_data():
             for t in track_series:
                 if pd.notna(t):
                     s_val = str(t).strip()
-                    if 'ダート' in s_val or 'ダ' in s_val or 'dirt' in s_val.lower():
+                    # 修正：芝を含まず、かつ「ダート」または単独の「ダ」が含まれる場合のみダートと判定
+                    if ('芝' not in s_val) and ('ダート' in s_val or 'dirt' in s_val.lower() or s_val == 'ダ'):
                         return True
             return False
 
@@ -436,9 +437,6 @@ with tab1:
         df_input['distance'] = float(p_distance)
         df_input['condition'] = str(p_condition)
 
-        # -------------------------------------------------------------------------
-        # 修正版スコア計算：基礎能力・上がり・「適切な」展開逆行ギャップの統合ロジック
-        # -------------------------------------------------------------------------
         if model is not None:
             try:
                 df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
@@ -452,11 +450,8 @@ with tab1:
                     if f not in df_input_enc.columns: df_input_enc[f] = 0
                 model_probs = model.predict_proba(df_input_enc[features].fillna(0))[:, 1]
 
-                # 1. 基礎能力（直近の平均着順）をベースの評価軸にする（悪い馬は大きくマイナス）
                 rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
-                
-                # 2. 真の展開逆行ボーナス：「直近平均着順が7着以内の実力馬」のみにプラスを付与し、大敗馬は除外
                 is_capable = df_input['past_avg_rank'] <= 7.0
                 reverse_val = df_input['true_reverse_gap'].abs()
                 reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
@@ -477,7 +472,6 @@ with tab1:
             reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
             score = rank_score + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
 
-        # ダート戦における初ダート判定の適正化（大敗馬は厳しく、ある程度走れる馬のペナルティは緩和）
         if p_track == "ダート":
             for idx, row in df_input.iterrows():
                 avg_r = row.get('past_avg_rank', 5.0)
