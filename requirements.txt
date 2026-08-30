@@ -7,3 +7,4 @@ lightgbm
 pytesseract
 pillow
 beautifulsoup4
+pyarrow==16.1.0
