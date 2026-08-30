@@ -11,13 +11,12 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【直近調子ベース×同条件ボーナス型】スマホで育てる！競馬AIマスターアプリ")
-st.write("直近5走の平均をベースにしつつ、同条件（同距離）の実績があればスマートに加点・ブレンドする進化版！✨🔥")
+st.title("🐎【直近調子ベース×同条件（競馬場×距離）完全一致ブレンド型】スマホで育てる！競馬AIマスターアプリ")
+st.write("ベースは安定の『直近5走平均』！過去全レースから『同じ競馬場・同じ距離』を走った実績がある馬だけスマートにブレンド・加点する進化版！✨🔥")
 
 def clean_str(s):
     if not s:
         return ""
-    # NFKC正規化に加え、スペースや特殊文字、末尾のゴミなどを完全に除去
     res = unicodedata.normalize('NFKC', str(s))
     for c in [" ", "　", "\t", "\n", "\r", "・", "."]:
         res = res.replace(c, "")
@@ -121,6 +120,7 @@ def load_and_process_master_data():
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
                     elif clean_c in ['トラック', 'Track', 'track', '芝ダート', '芝・ダート', 'コース', 'トラック種別']: col_mapping[c] = 'track_type'
+                    elif clean_c in ['開催', '場所', '競馬場', 'Place', 'place']: col_mapping[c] = 'place'
                     elif clean_c in ['レースID', 'race_id', 'RaceID', 'R_ID']: col_mapping[c] = 'race_id'
                 
                 df_m = df_m.rename(columns=col_mapping)
@@ -155,6 +155,11 @@ def load_and_process_master_data():
     else:
         df_m['distance'] = 2000.0
 
+    if 'place' in df_m.columns:
+        df_m['place'] = df_m['place'].astype(str).apply(clean_str)
+    else:
+        df_m['place'] = '東京'
+
     parsed_corners = df_m.apply(parse_corner_positions_from_row, axis=1)
     df_m['corner_1st'] = [x[0] for x in parsed_corners]
     df_m['corner_4th'] = [x[1] for x in parsed_corners]
@@ -176,7 +181,7 @@ def load_and_process_master_data():
             if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
 
     horse_history_features = {}
-    horse_distance_features = {}
+    horse_place_dist_features = {} # 【新仕様】(馬名, 競馬場, 距離) ごとの全レース実績
 
     if 'name' in df_m.columns:
         has_track_col = 'track_type' in df_m.columns
@@ -230,21 +235,23 @@ def load_and_process_master_data():
                     'has_dirt_exp': dirt_flag
                 }
 
-        if 'distance' in df_m.columns:
-            d_grouped = df_m.groupby(['name', 'distance']).agg(
-                avg_rank=('rank', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else 5.0),
-                avg_last_3f=('last_3f', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else 35.0),
-                avg_corner_1st=('corner_1st', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else np.nan),
-                avg_corner_4th=('corner_4th', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else np.nan),
-                avg_true_reverse_gap=('true_reverse_gap', lambda x: x.dropna().tail(3).mean() if len(x.dropna().tail(3)) > 0 else np.nan),
+        # 【追加】過去全レースから「馬名 × 競馬場 × 距離」ごとの実績を集計
+        if 'place' in df_m.columns and 'distance' in df_m.columns:
+            pd_grouped = df_m.groupby(['name', 'place', 'distance']).agg(
+                avg_rank=('rank', 'mean'),
+                avg_last_3f=('last_3f', 'mean'),
+                avg_corner_1st=('corner_1st', 'mean'),
+                avg_corner_4th=('corner_4th', 'mean'),
+                avg_true_reverse_gap=('true_reverse_gap', 'mean'),
                 race_count=('rank', 'count')
             )
-            for (h_name, dist), row in d_grouped.iterrows():
+            for (h_name, p_name, dist), row in pd_grouped.iterrows():
                 c_name = clean_str(h_name)
+                c_place = clean_str(p_name)
                 if c_name:
-                    if c_name not in horse_distance_features:
-                        horse_distance_features[c_name] = {}
-                    horse_distance_features[c_name][float(dist)] = {
+                    if c_name not in horse_place_dist_features:
+                        horse_place_dist_features[c_name] = {}
+                    horse_place_dist_features[c_name][(c_place, float(dist))] = {
                         'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
                         'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
                         'avg_corner_1st': row['avg_corner_1st'],
@@ -253,14 +260,14 @@ def load_and_process_master_data():
                         'race_count': row['race_count']
                     }
 
-    return df_m, jockey_win_rates, horse_history_features, horse_distance_features
+    return df_m, jockey_win_rates, horse_history_features, horse_place_dist_features
 
-df_m_auto, jockey_win_rates, horse_history_features, horse_distance_features = load_and_process_master_data()
+df_m_auto, jockey_win_rates, horse_history_features, horse_place_dist_features = load_and_process_master_data()
 
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（直近調子ベース×同条件ボーナス版）")
+    st.subheader("🚀 勝ち馬のガチ予測（直近調子ベース ＋ 競馬場×距離完全一致ブレンド版）")
 
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -368,11 +375,9 @@ with tab1:
                     clean_h_name = clean_str(h_name)
 
                     target_key = None
-                    # 1. まず完全一致をチェック
                     if clean_h_name in horse_history_features:
                         target_key = clean_h_name
                     else:
-                        # 2. 安全な部分一致チェック（短すぎる単語での誤爆を防ぐ）
                         for m_name in horse_history_features.keys():
                             if len(clean_h_name) >= 3 and (clean_h_name in m_name or m_name in clean_h_name):
                                 target_key = m_name
@@ -391,35 +396,28 @@ with tab1:
                     if matched_hist.get('sex') in ['牡', '牝', 'セン', 'セ']:
                         sex = matched_hist['sex']
 
-                    # 【ここをアップデート】直近ベースを維持しつつ、同条件（同距離）実績があれば係数をかけてブレンド・加点する
-                    if clean_h_name in horse_distance_features:
-                        d_dict = horse_distance_features[clean_h_name]
-                        dist_val = float(p_distance)
+                    # 【完全一致ブレンドの適用】「今回の競馬場 ＆ 今回の距離」の履歴が完全一致する場合のみブレンドする
+                    if clean_h_name in horse_place_dist_features:
+                        p_d_dict = horse_place_dist_features[clean_h_name]
+                        exact_key = (clean_str(p_place), float(p_distance))
                         
-                        target_dist_data = None
-                        if dist_val in d_dict:
-                            target_dist_data = d_dict[dist_val]
-                        else:
-                            closest_dist = min(d_dict.keys(), key=lambda x: abs(x - dist_val))
-                            if abs(closest_dist - dist_val) <= 400:
-                                target_dist_data = d_dict[closest_dist]
-
-                        if target_dist_data is not None:
-                            # 直近ベース（重み70%） ＋ 同条件データ（重み30%）でブレンド
-                            matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.7 + target_dist_data['avg_rank'] * 0.3
-                            matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.7 + target_dist_data['avg_last_3f'] * 0.3
+                        if exact_key in p_d_dict:
+                            exact_data = p_d_dict[exact_key]
+                            # 直近ベース（重み70%） ＋ 同条件（競馬場×距離）実績（重み30%）
+                            matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.7 + exact_data['avg_rank'] * 0.3
+                            matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.7 + exact_data['avg_last_3f'] * 0.3
                             
-                            if pd.notna(target_dist_data.get('avg_corner_1st')):
-                                base_c1 = matched_hist.get('avg_corner_1st', target_dist_data['avg_corner_1st'])
-                                matched_hist['avg_corner_1st'] = base_c1 * 0.7 + target_dist_data['avg_corner_1st'] * 0.3
+                            if pd.notna(exact_data.get('avg_corner_1st')):
+                                base_c1 = matched_hist.get('avg_corner_1st', exact_data['avg_corner_1st'])
+                                matched_hist['avg_corner_1st'] = base_c1 * 0.7 + exact_data['avg_corner_1st'] * 0.3
                             
-                            if pd.notna(target_dist_data.get('avg_corner_4th')):
-                                base_c4 = matched_hist.get('avg_corner_4th', target_dist_data['avg_corner_4th'])
-                                matched_hist['avg_corner_4th'] = base_c4 * 0.7 + target_dist_data['avg_corner_4th'] * 0.3
+                            if pd.notna(exact_data.get('avg_corner_4th')):
+                                base_c4 = matched_hist.get('avg_corner_4th', exact_data['avg_corner_4th'])
+                                matched_hist['avg_corner_4th'] = base_c4 * 0.7 + exact_data['avg_corner_4th'] * 0.3
 
-                            if pd.notna(target_dist_data.get('avg_true_reverse_gap')):
-                                base_gap = matched_hist.get('avg_true_reverse_gap', target_dist_data['avg_true_reverse_gap'])
-                                matched_hist['avg_true_reverse_gap'] = base_gap * 0.7 + target_dist_data['avg_true_reverse_gap'] * 0.3
+                            if pd.notna(exact_data.get('avg_true_reverse_gap')):
+                                base_gap = matched_hist.get('avg_true_reverse_gap', exact_data['avg_true_reverse_gap'])
+                                matched_hist['avg_true_reverse_gap'] = base_gap * 0.7 + exact_data['avg_true_reverse_gap'] * 0.3
 
                     c1_val = matched_hist.get('avg_corner_1st', np.nan)
                     c4_val = matched_hist.get('avg_corner_4th', np.nan)
@@ -459,7 +457,7 @@ with tab1:
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
-        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うち直近データ一致: **{matched_count}頭**)")
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(うちデータ一致: **{matched_count}頭**)")
 
     if st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
@@ -518,7 +516,7 @@ with tab1:
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（直近調子×同条件ブレンド版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（直近調子 × 競馬場×距離完全一致ブレンド版）")
 
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
