@@ -205,8 +205,8 @@ def load_and_process_master_data():
             'avg_true_reverse_gap': ('true_reverse_gap', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
             'race_count': ('rank', 'count'),
             'sex': ('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
-            'has_dirt_exp': ('track', lambda x: (x.str.contains('ダート')).any()),
-            'has_turf_exp': ('track', lambda x: (x.str.contains('芝')).any())
+            'has_dirt_exp': ('track', lambda x: x.astype(str).str.contains('ダート|ダ', regex=True).any()),
+            'has_turf_exp': ('track', lambda x: x.astype(str).str.contains('芝', regex=True).any())
         }
 
         h_grouped = df_m.groupby('name').agg(**agg_dict)
