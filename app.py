@@ -181,21 +181,9 @@ def load_and_process_master_data():
             if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
 
     horse_history_features = {}
-    horse_place_dist_features = {} # 【新仕様】(馬名, 競馬場, 距離) ごとの全レース実績
+    horse_place_dist_features = {}
 
     if 'name' in df_m.columns:
-        has_track_col = 'track_type' in df_m.columns
-        
-        def check_dirt_exp(track_series):
-            if not has_track_col:
-                return False
-            for t in track_series:
-                if pd.notna(t):
-                    s_val = clean_str(str(t))
-                    if 'ダ' in s_val or 'ダート' in s_val:
-                        return True
-            return False
-
         def recent_mean_rank(series):
             recent_vals = series.dropna().tail(5)
             if len(recent_vals) > 0:
@@ -213,15 +201,12 @@ def load_and_process_master_data():
             'race_count': ('rank', 'count'),
             'sex': ('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡')
         }
-        if has_track_col:
-            agg_dict['has_dirt_exp'] = ('track_type', check_dirt_exp)
 
         h_grouped = df_m.groupby('name').agg(**agg_dict)
         
         for h_name, row in h_grouped.iterrows():
             c_name = clean_str(h_name)
             if c_name:
-                dirt_flag = bool(row['has_dirt_exp']) if has_track_col else False
                 horse_history_features[c_name] = {
                     'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
                     'best_rank': row['best_rank'] if not np.isnan(row['best_rank']) else 5.0,
@@ -231,11 +216,9 @@ def load_and_process_master_data():
                     'avg_corner_4th': row['avg_corner_4th'],
                     'avg_true_reverse_gap': row['avg_true_reverse_gap'],
                     'race_count': row['race_count'],
-                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡',
-                    'has_dirt_exp': dirt_flag
+                    'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡'
                 }
 
-        # 【追加】過去全レースから「馬名 × 競馬場 × 距離」ごとの実績を集計
         if 'place' in df_m.columns and 'distance' in df_m.columns:
             pd_grouped = df_m.groupby(['name', 'place', 'distance']).agg(
                 avg_rank=('rank', 'mean'),
@@ -386,7 +369,7 @@ with tab1:
                     matched_hist = {
                         'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_true_reverse_gap': 0.0,
-                        'race_count': 0, 'sex': sex, 'has_dirt_exp': False
+                        'race_count': 0, 'sex': sex
                     }
                     
                     if target_key and target_key in horse_history_features:
@@ -396,14 +379,12 @@ with tab1:
                     if matched_hist.get('sex') in ['牡', '牝', 'セン', 'セ']:
                         sex = matched_hist['sex']
 
-                    # 【完全一致ブレンドの適用】「今回の競馬場 ＆ 今回の距離」の履歴が完全一致する場合のみブレンドする
                     if clean_h_name in horse_place_dist_features:
                         p_d_dict = horse_place_dist_features[clean_h_name]
                         exact_key = (clean_str(p_place), float(p_distance))
                         
                         if exact_key in p_d_dict:
                             exact_data = p_d_dict[exact_key]
-                            # 直近ベース（重み70%） ＋ 同条件（競馬場×距離）実績（重み30%）
                             matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.7 + exact_data['avg_rank'] * 0.3
                             matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.7 + exact_data['avg_last_3f'] * 0.3
                             
@@ -435,8 +416,7 @@ with tab1:
                         'blinker': 0, 
                         'corner_1st': c1_val,
                         'corner_4th': c4_val,
-                        'true_reverse_gap': true_gap,
-                        'has_dirt_exp': matched_hist.get('has_dirt_exp', False)
+                        'true_reverse_gap': true_gap
                     })
                     i = j - 1
                 i += 1
@@ -452,8 +432,7 @@ with tab1:
                 'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
                 'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
                 'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
-                'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0,
-                'has_dirt_exp': False
+                'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['past_avg_rank'] != 5.0)
@@ -501,16 +480,6 @@ with tab1:
             reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
             score = rank_score + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
 
-        if p_track == "ダート":
-            for idx, row in df_input.iterrows():
-                avg_r = row.get('past_avg_rank', 5.0)
-                has_dirt = row.get('has_dirt_exp', False)
-                if avg_r != 5.0 and not has_dirt:
-                    if avg_r >= 8.0:
-                        score.iloc[idx] *= 0.25
-                    else:
-                        score.iloc[idx] *= 0.85
-
         exp_s = np.exp(score - score.max())
         df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
@@ -531,14 +500,11 @@ with tab1:
             c_1st = row.get('corner_1st', np.nan)
             c_4th = row.get('corner_4th', 7.0)
             t_gap = row.get('true_reverse_gap', 0.0)
-            h_dirt_exp = row.get('has_dirt_exp', False)
-            has_history = (h_avg != 5.0)
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
-            dirt_tag = " ⚠️(初ダート)" if (p_track == "ダート" and has_history and not h_dirt_exp) else ""
 
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 調整平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}** (予測勝率: **{h_prob:.2f}%** / 調整平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をPart2マスターに追加する")
