@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【真の展開逆行・初ダート適正修正版】スマホで育てる！競馬AIマスターアプリ")
-st.write("ダート経験の有無を正確に判定し、初ダート馬へのマイナス補正を正常化！✨🔥")
+st.title("🐎【真の展開逆行・全履歴評価版】スマホで育てる！競馬AIマスターアプリ")
+st.write("過去全レースの展開バイアス＆通過順推移の完全表示対応！✨🔥")
 
 def clean_str(s):
     if not s:
@@ -156,6 +156,7 @@ def load_and_process_master_data():
     df_m['corner_4th'] = [x[1] for x in parsed_corners]
     df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
 
+    # 各レースの上位3頭の4角平均を算出
     if 'race_id' in df_m.columns:
         top3_df = df_m[df_m['rank'] <= 3]
         race_bias = top3_df.groupby('race_id')['corner_4th'].mean().to_dict()
@@ -163,6 +164,7 @@ def load_and_process_master_data():
     else:
         df_m['race_bias_4th'] = 6.0
 
+    # 過去全レースの真の展開逆行度を計算
     df_m['true_reverse_gap'] = df_m['corner_4th'] - df_m['race_bias_4th']
 
     jockey_win_rates = {}
@@ -177,34 +179,36 @@ def load_and_process_master_data():
     if 'name' in df_m.columns:
         has_track_col = 'track_type' in df_m.columns
         
-        # 厳密に「ダート」の文字が含まれるレースを走ったことがあるか判定する関数
         def check_dirt_exp(track_series):
             if not has_track_col:
                 return False
             for t in track_series:
                 if pd.notna(t):
                     s_val = str(t).strip()
-                    # 「ダ」または「ダート」が含まれていて、「芝」が含まれていない場合をダート経験とする
-                    if ('ダ' in s_val or 'ダート' in s_val) and '芝' not in s_val:
+                    if 'ダート' in s_val or s_val == 'ダート':
                         return True
             return False
 
-        h_grouped = df_m.groupby('name').agg(
-            avg_rank=('rank', 'mean'),
-            best_rank=('rank', 'min'),
-            avg_time=('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
-            avg_last_3f=('last_3f', 'mean'),
-            avg_corner_1st=('corner_1st', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
-            avg_corner_4th=('corner_4th', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
-            avg_true_reverse_gap=('true_reverse_gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
-            race_count=('rank', 'count'),
-            sex=('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
-            has_dirt_exp=('track_type', check_dirt_exp)
-        )
+        agg_dict = {
+            'avg_rank': ('rank', 'mean'),
+            'best_rank': ('rank', 'min'),
+            'avg_time': ('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
+            'avg_last_3f': ('last_3f', 'mean'),
+            'avg_corner_1st': ('corner_1st', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+            'avg_corner_4th': ('corner_4th', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+            'avg_true_reverse_gap': ('true_reverse_gap', lambda x: x.dropna().mean() if len(x.dropna()) > 0 else np.nan),
+            'race_count': ('rank', 'count'),
+            'sex': ('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡')
+        }
+        if has_track_col:
+            agg_dict['has_dirt_exp'] = ('track_type', check_dirt_exp)
+
+        h_grouped = df_m.groupby('name').agg(**agg_dict)
         
         for h_name, row in h_grouped.iterrows():
             c_name = clean_str(h_name)
             if c_name:
+                dirt_flag = bool(row['has_dirt_exp']) if has_track_col else False
                 horse_history_features[c_name] = {
                     'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
                     'best_rank': row['best_rank'] if not np.isnan(row['best_rank']) else 5.0,
@@ -215,7 +219,7 @@ def load_and_process_master_data():
                     'avg_true_reverse_gap': row['avg_true_reverse_gap'],
                     'race_count': row['race_count'],
                     'sex': row['sex'] if str(row['sex']).strip() in ['牡', '牝', 'セン', 'セ'] else '牡',
-                    'has_dirt_exp': bool(row['has_dirt_exp'])
+                    'has_dirt_exp': dirt_flag
                 }
 
         if 'distance' in df_m.columns:
@@ -248,7 +252,7 @@ df_m_auto, jockey_win_rates, horse_history_features, horse_distance_features = l
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（初ダート補正正常化版）")
+    st.subheader("🚀 勝ち馬のガチ予測（真の展開逆行評価反映版）")
 
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -459,18 +463,17 @@ with tab1:
             reverse_bonus = df_input['true_reverse_gap'].abs() * 1.2
             score = (6.0 - df_input['past_avg_rank']).clip(lower=0) * 2.0 + l3f_bonus + reverse_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
 
-        # ダート戦の場合、過去に一度もダートを走ったことがない（＝初ダートの）馬にしっかりマイナス補正をかける
         if p_track == "ダート":
             for idx, row in df_input.iterrows():
                 if row.get('past_avg_rank', 5.0) != 5.0 and not row.get('has_dirt_exp', False):
-                    score.iloc[idx] *= 0.4  # 初ダートは大幅にマイナス補正
+                    score.iloc[idx] *= 0.6  
 
         exp_s = np.exp(score - score.max())
         df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（初ダート補正正常化版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（真の展開逆行評価反映版）")
 
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
@@ -490,10 +493,7 @@ with tab1:
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
-            
-            # ダート戦で、過去データがあり、かつダート経験が「ない」場合のみ初ダートタグを表示
-            is_true_first_dirt = (p_track == "ダート" and has_history and not h_dirt_exp)
-            dirt_tag = " ⚠️(初ダート)" if is_true_first_dirt else ""
+            dirt_tag = " ⚠️(初ダート)" if (p_track == "ダート" and has_history and not h_dirt_exp) else ""
 
             st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
