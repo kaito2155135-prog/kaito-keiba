@@ -368,11 +368,13 @@ with tab1:
                     clean_h_name = clean_str(h_name)
 
                     target_key = None
+                    # 1. まず完全一致をチェック
                     if clean_h_name in horse_history_features:
                         target_key = clean_h_name
                     else:
+                        # 2. 安全な部分一致チェック（短すぎる単語での誤爆を防ぐ）
                         for m_name in horse_history_features.keys():
-                            if clean_h_name in m_name or m_name in clean_h_name:
+                            if len(clean_h_name) >= 3 and (clean_h_name in m_name or m_name in clean_h_name):
                                 target_key = m_name
                                 break
 
@@ -628,7 +630,7 @@ with tab3:
                 clf.fit(X, y)
                 joblib.dump(clf, 'keiba_ai_model.pkl')
                 st.balloons()
-                st.success("🎉 再学習完了！")
+                st.success("🎉 再学習完了!")
             except Exception as e:
                 st.warning(f"⚠️ 学習エラー: {e}")
     else:
