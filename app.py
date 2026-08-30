@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【真の展開逆行・直近調子重視版】スマホで育てる！競馬AIマスターアプリ")
-st.write("直近レースの着順を最優先で評価する安全チューニング版！✨🔥")
+st.title("🐎【直近調子ベース×同条件ボーナス型】スマホで育てる！競馬AIマスターアプリ")
+st.write("直近5走の平均をベースにしつつ、同条件（同距離）の実績があればスマートに加点・ブレンドする進化版！✨🔥")
 
 def clean_str(s):
     if not s:
@@ -187,16 +187,14 @@ def load_and_process_master_data():
                         return True
             return False
 
-        # 修正: 直近数走（最大5走）の平均着順を計算するロジックを追加
         def recent_mean_rank(series):
-            # 後ろ（直近）の最大5走を切り出して平均を取る
             recent_vals = series.dropna().tail(5)
             if len(recent_vals) > 0:
                 return recent_vals.mean()
             return 5.0
 
         agg_dict = {
-            'avg_rank': ('rank', recent_mean_rank),  # 全体平均から直近重視の平均に変更
+            'avg_rank': ('rank', recent_mean_rank),
             'best_rank': ('rank', 'min'),
             'avg_time': ('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
             'avg_last_3f': ('last_3f', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else 35.0),
@@ -258,7 +256,7 @@ df_m_auto, jockey_win_rates, horse_history_features, horse_distance_features = l
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（直近調子重視・真の展開逆行評価版）")
+    st.subheader("🚀 勝ち馬のガチ予測（直近調子ベース×同条件ボーナス版）")
 
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -387,15 +385,35 @@ with tab1:
                     if matched_hist.get('sex') in ['牡', '牝', 'セン', 'セ']:
                         sex = matched_hist['sex']
 
+                    # 【ここをアップデート】直近ベースを維持しつつ、同条件（同距離）実績があれば係数をかけてブレンド・加点する
                     if clean_h_name in horse_distance_features:
                         d_dict = horse_distance_features[clean_h_name]
                         dist_val = float(p_distance)
+                        
+                        target_dist_data = None
                         if dist_val in d_dict:
-                            matched_hist.update(d_dict[dist_val])
+                            target_dist_data = d_dict[dist_val]
                         else:
                             closest_dist = min(d_dict.keys(), key=lambda x: abs(x - dist_val))
                             if abs(closest_dist - dist_val) <= 400:
-                                matched_hist.update(d_dict[closest_dist])
+                                target_dist_data = d_dict[closest_dist]
+
+                        if target_dist_data is not None:
+                            # 直近ベース（重み70%） ＋ 同条件データ（重み30%）でブレンド
+                            matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.7 + target_dist_data['avg_rank'] * 0.3
+                            matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.7 + target_dist_data['avg_last_3f'] * 0.3
+                            
+                            if pd.notna(target_dist_data.get('avg_corner_1st')):
+                                base_c1 = matched_hist.get('avg_corner_1st', target_dist_data['avg_corner_1st'])
+                                matched_hist['avg_corner_1st'] = base_c1 * 0.7 + target_dist_data['avg_corner_1st'] * 0.3
+                            
+                            if pd.notna(target_dist_data.get('avg_corner_4th')):
+                                base_c4 = matched_hist.get('avg_corner_4th', target_dist_data['avg_corner_4th'])
+                                matched_hist['avg_corner_4th'] = base_c4 * 0.7 + target_dist_data['avg_corner_4th'] * 0.3
+
+                            if pd.notna(target_dist_data.get('avg_true_reverse_gap')):
+                                base_gap = matched_hist.get('avg_true_reverse_gap', target_dist_data['avg_true_reverse_gap'])
+                                matched_hist['avg_true_reverse_gap'] = base_gap * 0.7 + target_dist_data['avg_true_reverse_gap'] * 0.3
 
                     c1_val = matched_hist.get('avg_corner_1st', np.nan)
                     c4_val = matched_hist.get('avg_corner_4th', np.nan)
@@ -494,7 +512,7 @@ with tab1:
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（直近調子重視版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（直近調子×同条件ブレンド版）")
 
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
@@ -516,7 +534,7 @@ with tab1:
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
             dirt_tag = " ⚠️(初ダート)" if (p_track == "ダート" and has_history and not h_dirt_exp) else ""
 
-            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 直近平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
+            st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{dirt_tag} (予測勝率: **{h_prob:.2f}%** / 調整平均着順: {h_avg:.1f}着 / {corner_str} / **真の展開逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
 with tab2:
     st.subheader("📝 レース結果をPart2マスターに追加する")
