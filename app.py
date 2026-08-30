@@ -409,14 +409,14 @@ with tab1:
                         clean_h_name = target_key
                         sex = h_data['sex']
 
-                        # 選択されたトラックに合わせて直近5走を抽出（足りない場合は全体から補完）
+                        # 選択されたトラックに合わせて直近5走を抽出（不足時も指定トラックの履歴内または全体から安全に抽出）
                         if p_track == "芝":
                             sub_df = h_data['turf_group']
-                            if len(sub_df) < 3: # 芝実績が少なければ全履歴から対象トラックを優先しつつ直近を取る
+                            if len(sub_df) == 0:
                                 sub_df = h_data['raw_group']
                         elif p_track == "ダート":
                             sub_df = h_data['dirt_group']
-                            if len(sub_df) < 3:
+                            if len(sub_df) == 0:
                                 sub_df = h_data['raw_group']
                         else:
                             sub_df = h_data['raw_group']
