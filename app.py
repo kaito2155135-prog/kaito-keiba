@@ -116,7 +116,7 @@ def load_and_process_master_data():
                     elif clean_c in ['距離', 'Distance', 'distance']: col_mapping[c] = 'distance'
                     elif clean_c in ['馬場', '馬場状態', 'Condition', 'condition']: col_mapping[c] = 'condition'
                     elif clean_c in ['性別', 'Sex', 'sex']: col_mapping[c] = 'sex'
-                    elif clean_c in ['トラック', 'Track', 'track', '芝・ダート', 'コース', 'トラック種別']: col_mapping[c] = 'track_type'
+                    elif clean_c in ['トラック', 'Track', 'track', '芝ダート', '芝・ダート', 'コース', 'トラック種別']: col_mapping[c] = 'track_type'
                     elif clean_c in ['レースID', 'race_id', 'RaceID', 'R_ID']: col_mapping[c] = 'race_id'
                 
                 df_m = df_m.rename(columns=col_mapping)
@@ -183,7 +183,7 @@ def load_and_process_master_data():
             for t in track_series:
                 if pd.notna(t):
                     s_val = str(t).strip()
-                    if 'ダート' in s_val:
+                    if 'ダート' in s_val or 'ダ' in s_val or 'dirt' in s_val.lower():
                         return True
             return False
 
