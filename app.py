@@ -91,7 +91,8 @@ def parse_time_to_sec(val):
     return 0.0
 
 @st.cache_data
-def load_and_process_master_data():
+def load_master_data():
+    """起動時は重いループを一切せず、CSVの読み込みと最低限の列名整理・数値化だけを爆速で行う"""
     filename = 'keiba_master_data_part2.csv'
     if not os.path.exists(filename):
         for alt in ['keiba_master_data.csv', 'keiba_master_data_part1.csv']:
@@ -99,7 +100,7 @@ def load_and_process_master_data():
                 filename = alt
                 break
         else:
-            return pd.DataFrame(), {}, {}, {}
+            return pd.DataFrame(), {}
 
     df_m = pd.DataFrame()
     for enc in ['cp932', 'utf-8-sig', 'utf-8']:
@@ -129,7 +130,7 @@ def load_and_process_master_data():
             continue
 
     if df_m.empty:
-        return pd.DataFrame(), {}, {}, {}
+        return pd.DataFrame(), {}
 
     if 'name' in df_m.columns:
         df_m['name'] = df_m['name'].astype(str).apply(clean_str)
@@ -165,84 +166,16 @@ def load_and_process_master_data():
     else:
         df_m['track'] = '芝'
 
-    parsed_corners = df_m.apply(parse_corner_positions_from_row, axis=1)
-    df_m['corner_1st'] = [x[0] for x in parsed_corners]
-    df_m['corner_4th'] = [x[1] for x in parsed_corners]
-    df_m['time_sec'] = df_m['time'].apply(parse_time_to_sec) if 'time' in df_m.columns else 0.0
-
-    if 'race_id' in df_m.columns:
-        top3_df = df_m[df_m['rank'] <= 3]
-        race_bias = top3_df.groupby('race_id')['corner_4th'].mean().to_dict()
-        df_m['race_bias_4th'] = df_m['race_id'].map(race_bias).fillna(6.0)
-    else:
-        df_m['race_bias_4th'] = 6.0
-
-    df_m['true_reverse_gap'] = df_m['corner_4th'] - df_m['race_bias_4th']
-
+    # 騎手勝率だけは軽量なのでここで計算
     jockey_win_rates = {}
     if 'jockey' in df_m.columns and 'rank' in df_m.columns:
         j_stats = df_m.groupby('jockey').agg(total=('rank', 'count'), wins=('rank', lambda x: (x == 1).sum()))
         for j, row in j_stats.iterrows():
             if row['total'] > 0: jockey_win_rates[j] = row['wins'] / row['total']
 
-    horse_history_features = {}
-    horse_place_dist_features = {}
+    return df_m, jockey_win_rates
 
-    if 'name' in df_m.columns:
-        horse_raw_groups = {h_name: group for h_name, group in df_m.groupby('name')}
-
-        for h_name, group in horse_raw_groups.items():
-            c_name = clean_str(h_name)
-            if not c_name:
-                continue
-
-            sex_val = group['sex'].iloc[0] if len(group) > 0 and pd.notna(group['sex'].iloc[0]) else '牡'
-            if str(sex_val).strip() not in ['牡', '牝', 'セン', 'セ']:
-                sex_val = '牡'
-            has_dirt = group['track'].astype(str).str.contains('ダート|ダ', regex=True).any()
-            has_turf = group['track'].astype(str).str.contains('芝', regex=True).any()
-            race_cnt = len(group)
-
-            turf_sub = group[group['track'].apply(lambda x: '芝' in str(x) and 'ダ' not in str(x))]
-            dirt_sub = group[group['track'].apply(lambda x: 'ダ' in str(x))]
-
-            horse_history_features[c_name] = {
-                'raw_group': group,
-                'turf_group': turf_sub,
-                'dirt_group': dirt_sub,
-                'sex': sex_val,
-                'has_dirt_exp': has_dirt,
-                'has_turf_exp': has_turf,
-                'race_count': race_cnt
-            }
-
-        if 'place' in df_m.columns and 'distance' in df_m.columns:
-            pd_grouped = df_m.groupby(['name', 'place', 'distance']).agg(
-                avg_rank=('rank', 'mean'),
-                avg_last_3f=('last_3f', 'mean'),
-                avg_corner_1st=('corner_1st', 'mean'),
-                avg_corner_4th=('corner_4th', 'mean'),
-                avg_true_reverse_gap=('true_reverse_gap', 'mean'),
-                race_count=('rank', 'count')
-            )
-            for (h_name, p_name, dist), row in pd_grouped.iterrows():
-                c_name = clean_str(h_name)
-                c_place = clean_str(p_name)
-                if c_name:
-                    if c_name not in horse_place_dist_features:
-                        horse_place_dist_features[c_name] = {}
-                    horse_place_dist_features[c_name][(c_place, float(dist))] = {
-                        'avg_rank': row['avg_rank'] if not np.isnan(row['avg_rank']) else 5.0,
-                        'avg_last_3f': row['avg_last_3f'] if not np.isnan(row['avg_last_3f']) else 35.0,
-                        'avg_corner_1st': row['avg_corner_1st'],
-                        'avg_corner_4th': row['avg_corner_4th'],
-                        'avg_true_reverse_gap': row['avg_true_reverse_gap'],
-                        'race_count': row['race_count']
-                    }
-
-    return df_m, jockey_win_rates, horse_history_features, horse_place_dist_features
-
-df_m_auto, jockey_win_rates, horse_history_features, horse_place_dist_features = load_and_process_master_data()
+df_m_auto, jockey_win_rates = load_master_data()
 
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
@@ -267,6 +200,32 @@ with tab1:
     try:
         if raw_text.strip():
             lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip() != ""]
+            
+            # 【高速化・オンデマンド抽出】ペーストされた馬の名前リストをあらかじめ抽出
+            pasted_horse_candidates = set()
+            for line in lines:
+                c_l = clean_str(line)
+                if len(c_l) >= 2 and not any(kw in c_l for kw in ["人気", "データベース", "牡", "牝", "セ", "kg", "東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"]):
+                    pasted_horse_candidates.add(c_l)
+
+            # マスターデータから、今回出走する馬のデータだけをピンポイントで抽出する
+            sub_df_m = pd.DataFrame()
+            if not df_m_auto.empty and 'name' in df_m_auto.columns:
+                sub_df_m = df_m_auto[df_m_auto['name'].isin(pasted_horse_candidates)].copy()
+                if not sub_df_m.empty:
+                    parsed_corners = sub_df_m.apply(parse_corner_positions_from_row, axis=1)
+                    sub_df_m['corner_1st'] = [x[0] for x in parsed_corners]
+                    sub_df_m['corner_4th'] = [x[1] for x in parsed_corners]
+                    sub_df_m['time_sec'] = sub_df_m['time'].apply(parse_time_to_sec) if 'time' in sub_df_m.columns else 0.0
+
+                    if 'race_id' in sub_df_m.columns:
+                        top3_df = sub_df_m[sub_df_m['rank'] <= 3]
+                        race_bias = top3_df.groupby('race_id')['corner_4th'].mean().to_dict()
+                        sub_df_m['race_bias_4th'] = sub_df_m['race_id'].map(race_bias).fillna(6.0)
+                    else:
+                        sub_df_m['race_bias_4th'] = 6.0
+                    sub_df_m['true_reverse_gap'] = sub_df_m['corner_4th'] - sub_df_m['race_bias_4th']
+
             i = 0
             while i < len(lines):
                 line = lines[i]
@@ -291,7 +250,7 @@ with tab1:
 
                     for bl in block_lines:
                         clean_bl = clean_str(bl)
-                        if clean_bl in horse_history_features:
+                        if not sub_df_m.empty and clean_bl in sub_df_m['name'].values:
                             h_name = clean_bl
                             break
 
@@ -354,75 +313,78 @@ with tab1:
 
                     clean_h_name = clean_str(h_name)
 
-                    target_key = None
-                    if clean_h_name in horse_history_features:
-                        target_key = clean_h_name
-                    else:
-                        for m_name in horse_history_features.keys():
-                            if len(clean_h_name) >= 3 and (clean_h_name in m_name or m_name in clean_h_name):
-                                target_key = m_name
-                                break
-
                     matched_hist = {
                         'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_true_reverse_gap': 0.0,
                         'race_count': 0, 'sex': sex, 'has_dirt_exp': True, 'has_turf_exp': True
                     }
-                    
-                    if target_key and target_key in horse_history_features:
-                        h_data = horse_history_features[target_key]
-                        clean_h_name = target_key
-                        sex = h_data['sex']
 
-                        if p_track == "芝":
-                            sub_df = h_data['turf_group']
-                            if len(sub_df) == 0:
-                                sub_df = h_data['raw_group']
-                        elif p_track == "ダート":
-                            sub_df = h_data['dirt_group']
-                            if len(sub_df) == 0:
-                                sub_df = h_data['raw_group']
-                        else:
-                            sub_df = h_data['raw_group']
+                    # 該当馬の履歴データをピンポイントで抽出・集計
+                    if not sub_df_m.empty:
+                        h_group = sub_df_m[sub_df_m['name'] == clean_h_name]
+                        if h_group.empty:
+                            for m_name in sub_df_m['name'].unique():
+                                if len(clean_h_name) >= 3 and (clean_h_name in m_name or m_name in clean_h_name):
+                                    h_group = sub_df_m[sub_df_m['name'] == m_name]
+                                    clean_h_name = m_name
+                                    break
 
-                        recent_sub = sub_df.dropna(subset=['rank']).tail(5)
-                        if len(recent_sub) == 0:
-                            recent_sub = h_data['raw_group'].dropna(subset=['rank']).tail(5)
+                        if not h_group.empty:
+                            sex_val = h_group['sex'].iloc[0] if pd.notna(h_group['sex'].iloc[0]) else '牡'
+                            if str(sex_val).strip() in ['牡', '牝', 'セン', 'セ']:
+                                sex = sex_val
 
-                        if len(recent_sub) > 0:
-                            matched_hist['avg_rank'] = recent_sub['rank'].mean()
-                            matched_hist['best_rank'] = h_data['raw_group']['rank'].min()
-                            valid_times = recent_sub['time_sec'][recent_sub['time_sec'] > 0]
-                            matched_hist['avg_time'] = valid_times.mean() if len(valid_times) > 0 else 0.0
-                            matched_hist['avg_last_3f'] = recent_sub['last_3f'].mean() if len(recent_sub['last_3f'].dropna()) > 0 else 35.0
-                            matched_hist['avg_corner_1st'] = recent_sub['corner_1st'].mean() if len(recent_sub['corner_1st'].dropna()) > 0 else np.nan
-                            matched_hist['avg_corner_4th'] = recent_sub['corner_4th'].mean() if len(recent_sub['corner_4th'].dropna()) > 0 else np.nan
-                            matched_hist['avg_true_reverse_gap'] = recent_sub['true_reverse_gap'].mean() if len(recent_sub['true_reverse_gap'].dropna()) > 0 else 0.0
+                            has_dirt = h_group['track'].astype(str).str.contains('ダート|ダ', regex=True).any()
+                            has_turf = h_group['track'].astype(str).str.contains('芝', regex=True).any()
+                            race_cnt = len(h_group)
 
-                        matched_hist['race_count'] = h_data['race_count']
-                        matched_hist['has_dirt_exp'] = h_data['has_dirt_exp']
-                        matched_hist['has_turf_exp'] = h_data['has_turf_exp']
+                            if p_track == "芝":
+                                sub_sub = h_group[h_group['track'].apply(lambda x: '芝' in str(x) and 'ダ' not in str(x))]
+                                if len(sub_sub) == 0: sub_sub = h_group
+                            elif p_track == "ダート":
+                                sub_sub = h_group[h_group['track'].apply(lambda x: 'ダ' in str(x))]
+                                if len(sub_sub) == 0: sub_sub = h_group
+                            else:
+                                sub_sub = h_group
 
-                    if clean_h_name in horse_place_dist_features:
-                        p_d_dict = horse_place_dist_features[clean_h_name]
-                        exact_key = (clean_str(p_place), float(p_distance))
-                        
-                        if exact_key in p_d_dict:
-                            exact_data = p_d_dict[exact_key]
-                            matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.7 + exact_data['avg_rank'] * 0.3
-                            matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.7 + exact_data['avg_last_3f'] * 0.3
-                            
-                            if pd.notna(exact_data.get('avg_corner_1st')):
-                                base_c1 = matched_hist.get('avg_corner_1st', exact_data['avg_corner_1st'])
-                                matched_hist['avg_corner_1st'] = base_c1 * 0.7 + exact_data['avg_corner_1st'] * 0.3
-                            
-                            if pd.notna(exact_data.get('avg_corner_4th')):
-                                base_c4 = matched_hist.get('avg_corner_4th', exact_data['avg_corner_4th'])
-                                matched_hist['avg_corner_4th'] = base_c4 * 0.7 + exact_data['avg_corner_4th'] * 0.3
+                            recent_sub = sub_sub.dropna(subset=['rank']).tail(5)
+                            if len(recent_sub) == 0:
+                                recent_sub = h_group.dropna(subset=['rank']).tail(5)
 
-                            if pd.notna(exact_data.get('avg_true_reverse_gap')):
-                                base_gap = matched_hist.get('avg_true_reverse_gap', exact_data['avg_true_reverse_gap'])
-                                matched_hist['avg_true_reverse_gap'] = base_gap * 0.7 + exact_data['avg_true_reverse_gap'] * 0.3
+                            if len(recent_sub) > 0:
+                                matched_hist['avg_rank'] = recent_sub['rank'].mean()
+                                matched_hist['best_rank'] = h_group['rank'].min()
+                                valid_times = recent_sub['time_sec'][recent_sub['time_sec'] > 0]
+                                matched_hist['avg_time'] = valid_times.mean() if len(valid_times) > 0 else 0.0
+                                matched_hist['avg_last_3f'] = recent_sub['last_3f'].mean() if len(recent_sub['last_3f'].dropna()) > 0 else 35.0
+                                matched_hist['avg_corner_1st'] = recent_sub['corner_1st'].mean() if len(recent_sub['corner_1st'].dropna()) > 0 else np.nan
+                                matched_hist['avg_corner_4th'] = recent_sub['corner_4th'].mean() if len(recent_sub['corner_4th'].dropna()) > 0 else np.nan
+                                matched_hist['avg_true_reverse_gap'] = recent_sub['true_reverse_gap'].mean() if len(recent_sub['true_reverse_gap'].dropna()) > 0 else 0.0
+
+                            matched_hist['race_count'] = race_cnt
+                            matched_hist['has_dirt_exp'] = has_dirt
+                            matched_hist['has_turf_exp'] = has_turf
+
+                            # 同一競馬場・同一距離の実績ブレンド
+                            exact_match = h_group[(h_group['place'] == clean_str(p_place)) & (h_group['distance'] == float(p_distance))]
+                            if len(exact_match) > 0:
+                                matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.7 + exact_match['rank'].mean() * 0.3
+                                matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.7 + exact_match['last_3f'].mean() * 0.3
+                                
+                                c1_ex = exact_match['corner_1st'].mean()
+                                if pd.notna(c1_ex):
+                                    base_c1 = matched_hist.get('avg_corner_1st', c1_ex)
+                                    matched_hist['avg_corner_1st'] = base_c1 * 0.7 + c1_ex * 0.3
+                                
+                                c4_ex = exact_match['corner_4th'].mean()
+                                if pd.notna(c4_ex):
+                                    base_c4 = matched_hist.get('avg_corner_4th', c4_ex)
+                                    matched_hist['avg_corner_4th'] = base_c4 * 0.7 + c4_ex * 0.3
+
+                                gap_ex = exact_match['true_reverse_gap'].mean()
+                                if pd.notna(gap_ex):
+                                    base_gap = matched_hist.get('avg_true_reverse_gap', gap_ex)
+                                    matched_hist['avg_true_reverse_gap'] = base_gap * 0.7 + gap_ex * 0.3
 
                     c1_val = matched_hist.get('avg_corner_1st', np.nan)
                     c4_val = matched_hist.get('avg_corner_4th', np.nan)
@@ -443,7 +405,7 @@ with tab1:
                         'true_reverse_gap': true_gap,
                         'has_dirt_exp': matched_hist.get('has_dirt_exp', True),
                         'has_turf_exp': matched_hist.get('has_turf_exp', True),
-                        'has_history': matched_hist['race_count'] > 0 if 'race_count' in matched_hist else (target_key is not None)
+                        'has_history': matched_hist['race_count'] > 0
                     })
                     i = j - 1
                 i += 1
@@ -602,7 +564,7 @@ with tab2:
         df_new = pd.DataFrame(new_data_list)
         df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
         df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
-        st.cache_data.clear() # キャッシュをクリアして次回読み込み時に反映させる
+        st.cache_data.clear()
         st.balloons()
         st.success("🎉 結果データがPart2マスターに保存されました！")
 
