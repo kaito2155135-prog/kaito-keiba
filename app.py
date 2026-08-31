@@ -141,6 +141,9 @@ def load_master_data():
                     elif clean_c in ['開催', '場所', '競馬場', 'Place', 'place']: col_mapping[c] = 'place'
                     elif clean_c in ['レースID', 'race_id', 'RaceID', 'R_ID']: col_mapping[c] = 'race_id'
                     elif clean_c in ['クラス', 'レースクラス', 'Class', 'race_class']: col_mapping[c] = 'race_class'
+                    elif clean_c in ['年', 'year', 'Year']: col_mapping[c] = 'year'
+                    elif clean_c in ['月', 'month', 'Month']: col_mapping[c] = 'month'
+                    elif clean_c in ['日', 'day', 'Day']: col_mapping[c] = 'day'
                 
                 df_m = df_m.rename(columns=col_mapping)
                 break
@@ -351,6 +354,11 @@ with tab1:
                                     break
 
                         if not h_group.empty:
+                            # 日付順に確実にソートしてから最新の履歴を一番上に持ってくる
+                            sort_cols = [c for c in ['year', 'month', 'day'] if c in h_group.columns]
+                            if sort_cols:
+                                h_group = h_group.sort_values(by=sort_cols, ascending=True)
+
                             sex_val = h_group['sex'].iloc[0] if pd.notna(h_group['sex'].iloc[0]) else '牡'
                             if str(sex_val).strip() in ['牡', '牝', 'セン', 'セ']:
                                 sex = sex_val
