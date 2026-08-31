@@ -358,16 +358,19 @@ with tab1:
                             has_turf = h_group['track'].astype(str).str.contains('芝', regex=True).any()
                             race_cnt = len(h_group)
 
-                            # ★直近のレースから前走のクラスを判定
+                            # ★過去全レースを走査して最高クラス経験を判定
                             if 'race_class' in h_group.columns and len(h_group) > 0:
                                 last_row = h_group.iloc[-1]
                                 prev_c_name = str(last_row.get('race_class', '1勝クラス'))
-                                prev_level = get_class_level(prev_c_name)
                                 matched_hist['prev_class_name'] = prev_c_name
                                 
-                                # 今回のクラスレベルが前走より高い ＝ 昇級初戦！
-                                if current_target_class_level > prev_level:
+                                past_levels = [get_class_level(c) for c in h_group['race_class'].dropna()]
+                                max_past_level = max(past_levels) if past_levels else 0
+                                
+                                if current_target_class_level > max_past_level:
                                     matched_hist['is_promotion_first'] = True
+                                else:
+                                    matched_hist['is_promotion_first'] = False
 
                             if p_track == "芝":
                                 sub_sub = h_group[h_group['track'].apply(lambda x: '芝' in str(x) and 'ダ' not in str(x))]
