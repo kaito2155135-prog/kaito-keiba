@@ -348,17 +348,18 @@ with tab1:
                         # 1. まず完全一致を最優先で探す
                         h_group = sub_df_m[sub_df_m['name'] == clean_h_name]
                         
-                        # 2. 完全一致が見つからない場合のみ、誤爆を防ぐ安全な条件で部分一致を探す
+                        # 2. 完全一致が見つからない場合、前方一致や部分一致を許可する
                         if h_group.empty and len(clean_h_name) >= 2:
                             matched_name = None
                             for m_name in sub_df_m['name'].unique():
                                 if clean_h_name == m_name:
                                     matched_name = m_name
                                     break
-                                # 「キセキ」や「ロジ」などの一般パーツ単体で誤爆しないよう、文字数が3文字以上かつ片方がもう片方を完全に包含する場合のみ許可
-                                elif (len(clean_h_name) >= 3 and len(m_name) >= 3) and (clean_h_name in m_name or m_name in clean_h_name):
-                                    matched_name = m_name
-                                    break
+                                # どちらかが含まれていれば候補とする（文字数制限を2文字以上に緩和）
+                                elif len(clean_h_name) >= 2 and len(m_name) >= 2:
+                                    if clean_h_name in m_name or m_name in clean_h_name:
+                                        matched_name = m_name
+                                        break
                             
                             if matched_name:
                                 h_group = sub_df_m[sub_df_m['name'] == matched_name]
