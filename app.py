@@ -32,7 +32,7 @@ def load_model():
 
 model = load_model()
 
-# ★クラスの序列マップ（あなたのマスターデータの表記に完全対応＆オープン以上は同格化）
+# ★クラスの序列マップ（オープン以上と重賞をそれぞれ一括り）
 CLASS_RANK_MAP = {
     "新馬": 0, 
     "未勝利": 1, 
@@ -40,7 +40,7 @@ CLASS_RANK_MAP = {
     "2勝": 3, "2勝クラス": 3, 
     "3勝": 4, "3勝クラス": 4, 
     "オープン": 5, "OP": 5, "OP(L)": 5, "リステッド": 5,
-    "G3": 5, "G2": 5, "G1": 5
+    "G3": 6, "G2": 6, "G1": 6
 }
 
 def get_class_level(class_name):
@@ -491,7 +491,7 @@ with tab1:
                 reverse_val = df_input['true_reverse_gap'].abs()
                 reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
 
-                # ★昇級初戦の馬に対するマイナス補正（過剰人気で飛びつきやすいところをAIが冷静に割引）
+                # ★昇級初戦の馬に対するマイナス補正
                 promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
 
                 score = model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + promo_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
