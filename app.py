@@ -345,13 +345,24 @@ with tab1:
                     }
 
                     if not sub_df_m.empty:
+                        # 1. まず完全一致を最優先で探す
                         h_group = sub_df_m[sub_df_m['name'] == clean_h_name]
-                        if h_group.empty:
+                        
+                        # 2. 完全一致が見つからない場合のみ、誤爆を防ぐ安全な条件で部分一致を探す
+                        if h_group.empty and len(clean_h_name) >= 2:
+                            matched_name = None
                             for m_name in sub_df_m['name'].unique():
-                                if (len(clean_h_name) >= 2 and (clean_h_name in m_name or m_name in clean_h_name)) or (len(clean_h_name) >= 2 and (clean_h_name[:2] == m_name[:2])):
-                                    h_group = sub_df_m[sub_df_m['name'] == m_name]
-                                    clean_h_name = m_name
+                                if clean_h_name == m_name:
+                                    matched_name = m_name
                                     break
+                                # 「キセキ」や「ロジ」などの一般パーツ単体で誤爆しないよう、文字数が3文字以上かつ片方がもう片方を完全に包含する場合のみ許可
+                                elif (len(clean_h_name) >= 3 and len(m_name) >= 3) and (clean_h_name in m_name or m_name in clean_h_name):
+                                    matched_name = m_name
+                                    break
+                            
+                            if matched_name:
+                                h_group = sub_df_m[sub_df_m['name'] == matched_name]
+                                clean_h_name = matched_name
 
                         if not h_group.empty:
                             # 日付順に確実にソートしてから最新の履歴を一番上に持ってくる
