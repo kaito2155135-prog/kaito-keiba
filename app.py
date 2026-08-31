@@ -364,9 +364,11 @@ with tab1:
                                 prev_c_name = str(last_row.get('race_class', '1勝クラス'))
                                 matched_hist['prev_class_name'] = prev_c_name
                                 
+                                # 過去に走ったすべてのレースのクラスレベルを算出
                                 past_levels = [get_class_level(c) for c in h_group['race_class'].dropna()]
-                                max_past_level = max(past_levels) if past_levels else 0
+                                max_past_level = max(past_levels) if past_levels else get_class_level(prev_c_name)
                                 
+                                # 「今回のクラスレベル」が「過去の最高経験クラスレベル」よりも高い場合 ＝ 昇級初戦！
                                 if current_target_class_level > max_past_level:
                                     matched_hist['is_promotion_first'] = True
                                 else:
