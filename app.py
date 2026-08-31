@@ -201,14 +201,12 @@ with tab1:
         if raw_text.strip():
             lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip() != ""]
             
-            # 【高速化・オンデマンド抽出】ペーストされた馬の名前リストをあらかじめ抽出
             pasted_horse_candidates = set()
             for line in lines:
                 c_l = clean_str(line)
                 if len(c_l) >= 2 and not any(kw in c_l for kw in ["人気", "データベース", "牡", "牝", "セ", "kg", "東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"]):
                     pasted_horse_candidates.add(c_l)
 
-            # マスターデータから、今回出走する馬のデータだけをピンポイントで抽出する
             sub_df_m = pd.DataFrame()
             if not df_m_auto.empty and 'name' in df_m_auto.columns:
                 sub_df_m = df_m_auto[df_m_auto['name'].isin(pasted_horse_candidates)].copy()
@@ -319,7 +317,6 @@ with tab1:
                         'race_count': 0, 'sex': sex, 'has_dirt_exp': True, 'has_turf_exp': True
                     }
 
-                    # 該当馬の履歴データをピンポイントで抽出・集計
                     if not sub_df_m.empty:
                         h_group = sub_df_m[sub_df_m['name'] == clean_h_name]
                         if h_group.empty:
@@ -365,26 +362,26 @@ with tab1:
                             matched_hist['has_dirt_exp'] = has_dirt
                             matched_hist['has_turf_exp'] = has_turf
 
-                            # 同一競馬場・同一距離の実績ブレンド
+                            # ★同条件（競馬場×距離）の実績ブレンド比率を5割（0.5）に変更
                             exact_match = h_group[(h_group['place'] == clean_str(p_place)) & (h_group['distance'] == float(p_distance))]
                             if len(exact_match) > 0:
-                                matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.7 + exact_match['rank'].mean() * 0.3
-                                matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.7 + exact_match['last_3f'].mean() * 0.3
+                                matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.5 + exact_match['rank'].mean() * 0.5
+                                matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.5 + exact_match['last_3f'].mean() * 0.5
                                 
                                 c1_ex = exact_match['corner_1st'].mean()
                                 if pd.notna(c1_ex):
                                     base_c1 = matched_hist.get('avg_corner_1st', c1_ex)
-                                    matched_hist['avg_corner_1st'] = base_c1 * 0.7 + c1_ex * 0.3
+                                    matched_hist['avg_corner_1st'] = base_c1 * 0.5 + c1_ex * 0.5
                                 
                                 c4_ex = exact_match['corner_4th'].mean()
                                 if pd.notna(c4_ex):
                                     base_c4 = matched_hist.get('avg_corner_4th', c4_ex)
-                                    matched_hist['avg_corner_4th'] = base_c4 * 0.7 + c4_ex * 0.3
+                                    matched_hist['avg_corner_4th'] = base_c4 * 0.5 + c4_ex * 0.5
 
                                 gap_ex = exact_match['true_reverse_gap'].mean()
                                 if pd.notna(gap_ex):
                                     base_gap = matched_hist.get('avg_true_reverse_gap', gap_ex)
-                                    matched_hist['avg_true_reverse_gap'] = base_gap * 0.7 + gap_ex * 0.3
+                                    matched_hist['avg_true_reverse_gap'] = base_gap * 0.5 + gap_ex * 0.5
 
                     c1_val = matched_hist.get('avg_corner_1st', np.nan)
                     c4_val = matched_hist.get('avg_corner_4th', np.nan)
