@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【直近調子ベース×同条件（競馬場×距離）完全一致ブレンド型】スマホで育てる！競馬AIマスターアプリ")
-st.write("ベースは安定の『直近7走平均』！過去全レースから『同じ競馬場・同じ距離』を走った実績がある馬だけスマートにブレンド・加点する進化版！✨🔥")
+st.title("🐎【直近調子ベース×同条件（競馬場×トラック）完全一致ブレンド型】スマホで育てる！競馬AIマスターアプリ")
+st.write("ベースは安定の『直近7走平均』！過去全レースから『同じ競馬場・同じトラック』を走った実績がある馬だけスマートにブレンド・加点する進化版！✨🔥")
 
 def clean_str(s):
     if not s:
@@ -180,7 +180,7 @@ df_m_auto, jockey_win_rates = load_master_data()
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（直近調子ベース ＋ 競馬場×距離完全一致ブレンド版）")
+    st.subheader("🚀 勝ち馬のガチ予測（直近調子ベース ＋ 競馬場×トラック完全一致ブレンド版）")
 
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -362,8 +362,11 @@ with tab1:
                             matched_hist['has_dirt_exp'] = has_dirt
                             matched_hist['has_turf_exp'] = has_turf
 
-                            # ★同条件（競馬場×距離）の実績ブレンド比率を5割（0.5）に変更
-                            exact_match = h_group[(h_group['place'] == clean_str(p_place)) & (h_group['distance'] == float(p_distance))]
+                            # ★同条件（競馬場×トラック）の実績ブレンド比率（距離条件を除外し、トラックの一致に変更）
+                            exact_match = h_group[
+                                (h_group['place'] == clean_str(p_place)) & 
+                                (h_group['track'].astype(str).str.contains(p_track))
+                            ]
                             if len(exact_match) > 0:
                                 matched_hist['avg_rank'] = matched_hist['avg_rank'] * 0.5 + exact_match['rank'].mean() * 0.5
                                 matched_hist['avg_last_3f'] = matched_hist['avg_last_3f'] * 0.5 + exact_match['last_3f'].mean() * 0.5
@@ -472,7 +475,7 @@ with tab1:
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（直近調子 × 競馬場×距離完全一致ブレンド版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（直近調子 × 競馬場×トラック完全一致ブレンド版）")
 
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
