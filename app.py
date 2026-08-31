@@ -521,9 +521,28 @@ with tab1:
 
                 rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
+                
+                # ★【アップデート】展開逆行（展開不利を覆した強さ）の非対称評価ロジック
+                # レース全体の4角平均バイアスを算出（全体が前残りか、差し・追込展開か）
+                race_bias_4th_val = df_input['true_reverse_gap'].mean() if len(df_input) > 0 else 6.0
+                is_heavy_track_bias = race_bias_4th_val <= 5.0  # 前残り展開の目安
+                is_chaser = df_input['corner_4th'] >= 10.0      # 後方からの競馬
                 is_capable = df_input['past_avg_rank'] <= 7.0
-                reverse_val = df_input['true_reverse_gap'].abs()
-                reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
+
+                # 展開に逆行して健闘した場合に大きなプラスボーナス、逆に展開利を得ただけの馬は据え置き/割引
+                reverse_bonus = np.where(
+                    (is_heavy_track_bias & is_chaser) & is_capable,
+                    +4.5,  # 前残りなのに後方から突っ込んだ馬（強い競馬）
+                    np.where(
+                        (~is_heavy_track_bias & (df_input['corner_4th'] <= 4.0)) & is_capable,
+                        +4.5,  # 差し・追込展開なのに前々から粘った馬（強い競馬）
+                        np.where(
+                            is_capable,
+                            df_input['true_reverse_gap'].abs() * 1.5,
+                            -df_input['true_reverse_gap'].abs() * 0.5
+                        )
+                    )
+                )
 
                 # 各種マイナス補正
                 promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
@@ -534,9 +553,26 @@ with tab1:
             except Exception as e:
                 rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
+                
+                race_bias_4th_val = df_input['true_reverse_gap'].mean() if len(df_input) > 0 else 6.0
+                is_heavy_track_bias = race_bias_4th_val <= 5.0
+                is_chaser = df_input['corner_4th'] >= 10.0
                 is_capable = df_input['past_avg_rank'] <= 7.0
-                reverse_val = df_input['true_reverse_gap'].abs()
-                reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
+
+                reverse_bonus = np.where(
+                    (is_heavy_track_bias & is_chaser) & is_capable,
+                    +4.5,
+                    np.where(
+                        (~is_heavy_track_bias & (df_input['corner_4th'] <= 4.0)) & is_capable,
+                        +4.5,
+                        np.where(
+                            is_capable,
+                            df_input['true_reverse_gap'].abs() * 1.5,
+                            -df_input['true_reverse_gap'].abs() * 0.5
+                        )
+                    )
+                )
+
                 promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
                 dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
                 turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
@@ -544,9 +580,26 @@ with tab1:
         else:
             rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
             l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
+            
+            race_bias_4th_val = df_input['true_reverse_gap'].mean() if len(df_input) > 0 else 6.0
+            is_heavy_track_bias = race_bias_4th_val <= 5.0
+            is_chaser = df_input['corner_4th'] >= 10.0
             is_capable = df_input['past_avg_rank'] <= 7.0
-            reverse_val = df_input['true_reverse_gap'].abs()
-            reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
+
+            reverse_bonus = np.where(
+                (is_heavy_track_bias & is_chaser) & is_capable,
+                +4.5,
+                np.where(
+                    (~is_heavy_track_bias & (df_input['corner_4th'] <= 4.0)) & is_capable,
+                    +4.5,
+                    np.where(
+                        is_capable,
+                        df_input['true_reverse_gap'].abs() * 1.5,
+                        -df_input['true_reverse_gap'].abs() * 0.5
+                    )
+                )
+            )
+
             promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
             dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
             turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
