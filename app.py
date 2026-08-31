@@ -348,7 +348,7 @@ with tab1:
                         h_group = sub_df_m[sub_df_m['name'] == clean_h_name]
                         if h_group.empty:
                             for m_name in sub_df_m['name'].unique():
-                                if len(clean_h_name) >= 3 and (clean_h_name in m_name or m_name in clean_h_name):
+                                if (len(clean_h_name) >= 2 and (clean_h_name in m_name or m_name in clean_h_name)) or (len(clean_h_name) >= 2 and (clean_h_name[:2] == m_name[:2])):
                                     h_group = sub_df_m[sub_df_m['name'] == m_name]
                                     clean_h_name = m_name
                                     break
