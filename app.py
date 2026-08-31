@@ -12,7 +12,7 @@ warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 st.title("🐎【直近調子ベース×同条件（競馬場×距離）完全一致ブレンド型】スマホで育てる！競馬AIマスターアプリ")
-st.write("ベースは安定の『直近5走平均』！過去全レースから『同じ競馬場・同じ距離』を走った実績がある馬だけスマートにブレンド・加点する進化版！✨🔥")
+st.write("ベースは安定の『直近7走平均』！過去全レースから『同じ競馬場・同じ距離』を走った実績がある馬だけスマートにブレンド・加点する進化版！✨🔥")
 
 def clean_str(s):
     if not s:
@@ -344,9 +344,9 @@ with tab1:
                             else:
                                 sub_sub = h_group
 
-                            recent_sub = sub_sub.dropna(subset=['rank']).tail(5)
+                            recent_sub = sub_sub.dropna(subset=['rank']).tail(7)
                             if len(recent_sub) == 0:
-                                recent_sub = h_group.dropna(subset=['rank']).tail(5)
+                                recent_sub = h_group.dropna(subset=['rank']).tail(7)
 
                             if len(recent_sub) > 0:
                                 matched_hist['avg_rank'] = recent_sub['rank'].mean()
