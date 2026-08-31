@@ -189,39 +189,6 @@ def load_and_process_master_data():
     horse_place_dist_features = {}
 
     if 'name' in df_m.columns:
-        # トラック種別（芝・ダート）を正規化する補助関数
-        def is_target_track(track_val, target_type):
-            s = str(track_val)
-            if target_type == '芝':
-                return '芝' in s and 'ダ' not in s
-            elif target_type == 'ダート':
-                return 'ダ' in s
-            return True
-
-        def get_filtered_history(group_df, track_type=None):
-            if track_type:
-                filtered = group_df[group_df['track'].apply(lambda x: is_target_track(x, track_type))]
-                if len(filtered) < 3: # レース数が少なすぎる場合は全体から取るなどのフォールバック
-                    filtered = group_df
-            else:
-                filtered = group_df
-            return filtered.dropna(subset=['rank']).tail(5)
-
-        agg_dict = {
-            'avg_rank': ('rank', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else 5.0),
-            'best_rank': ('rank', 'min'),
-            'avg_time': ('time_sec', lambda x: x[x > 0].mean() if len(x[x > 0]) > 0 else 0.0),
-            'avg_last_3f': ('last_3f', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else 35.0),
-            'avg_corner_1st': ('corner_1st', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
-            'avg_corner_4th': ('corner_4th', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
-            'avg_true_reverse_gap': ('true_reverse_gap', lambda x: x.dropna().tail(5).mean() if len(x.dropna().tail(5)) > 0 else np.nan),
-            'race_count': ('rank', 'count'),
-            'sex': ('sex', lambda x: x.iloc[0] if len(x) > 0 and pd.notna(x.iloc[0]) else '牡'),
-            'has_dirt_exp': ('track', lambda x: x.astype(str).str.contains('ダート|ダ', regex=True).any()),
-            'has_turf_exp': ('track', lambda x: x.astype(str).str.contains('芝', regex=True).any())
-        }
-
-        # 馬ごとに全データのフレームを保持して、予測時にトラック別で直近5走を切り出せるようにする
         horse_raw_groups = {h_name: group for h_name, group in df_m.groupby('name')}
 
         for h_name, group in horse_raw_groups.items():
@@ -229,7 +196,6 @@ def load_and_process_master_data():
             if not c_name:
                 continue
 
-            # 総合的な基本情報 (sex, exp等)
             sex_val = group['sex'].iloc[0] if len(group) > 0 and pd.notna(group['sex'].iloc[0]) else '牡'
             if str(sex_val).strip() not in ['牡', '牝', 'セン', 'セ']:
                 sex_val = '牡'
@@ -237,7 +203,6 @@ def load_and_process_master_data():
             has_turf = group['track'].astype(str).str.contains('芝', regex=True).any()
             race_cnt = len(group)
 
-            # トラック別の直近5走抽出用データ保存
             turf_sub = group[group['track'].apply(lambda x: '芝' in str(x) and 'ダ' not in str(x))]
             dirt_sub = group[group['track'].apply(lambda x: 'ダ' in str(x))]
 
@@ -409,7 +374,6 @@ with tab1:
                         clean_h_name = target_key
                         sex = h_data['sex']
 
-                        # 選択されたトラックに合わせて直近5走を抽出（不足時も指定トラックの履歴内または全体から安全に抽出）
                         if p_track == "芝":
                             sub_df = h_data['turf_group']
                             if len(sub_df) == 0:
@@ -565,7 +529,6 @@ with tab1:
             c_4th = row.get('corner_4th', 7.0)
             t_gap = row.get('true_reverse_gap', 0.0)
             
-            # 初ダート・初芝タグの判定
             is_dirt_race = (p_track == "ダート")
             is_turf_race = (p_track == "芝")
             has_history = row.get('has_history', False)
@@ -639,6 +602,7 @@ with tab2:
         df_new = pd.DataFrame(new_data_list)
         df_combined = pd.concat([df_m_auto, df_new], ignore_index=True) if not df_m_auto.empty else df_new
         df_combined.to_csv('keiba_master_data_part2.csv', index=False, encoding='cp932')
+        st.cache_data.clear() # キャッシュをクリアして次回読み込み時に反映させる
         st.balloons()
         st.success("🎉 結果データがPart2マスターに保存されました！")
 
