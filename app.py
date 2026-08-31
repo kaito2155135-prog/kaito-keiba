@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelEncoder
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-st.title("🐎【昇級初戦＆初ダートの壁・自動補正付き】スマホで育てる！競馬AIマスターアプリ")
-st.write("ベースは直近7走平均＆競馬場トラック一致！さらに『昇級初戦・初ダートの過剰人気馬が凡走する人間の感覚』をAIのスコアに自動反映する進化版！🔥")
+st.title("🐎【昇級初戦・初ダート・初芝の壁・自動補正付き】スマホで育てる！競馬AIマスターアプリ")
+st.write("ベースは直近7走平均＆競馬場トラック一致！さらに『昇級初戦・初ダート・初芝の過剰人気馬が凡走する人間の感覚』をAIのスコアに自動反映する進化版！🔥")
 
 def clean_str(s):
     if not s:
@@ -200,7 +200,7 @@ df_m_auto, jockey_win_rates = load_master_data()
 tab1, tab2, tab3 = st.tabs(["🚀 ガチ予測", "📝 レース結果を追加", "🧠 AI再学習"])
 
 with tab1:
-    st.subheader("🚀 勝ち馬のガチ予測（昇級初戦・初ダートの壁・自動補正付き）")
+    st.subheader("🚀 勝ち馬のガチ予測（昇級初戦・初ダート・初芝の壁・自動補正付き）")
 
     col_p1, col_p2, col_p3 = st.columns(3)
     with col_p1:
@@ -337,7 +337,8 @@ with tab1:
                         'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_true_reverse_gap': 0.0,
                         'race_count': 0, 'sex': sex, 'has_dirt_exp': True, 'has_turf_exp': True,
-                        'is_promotion_first': False, 'prev_class_name': '不明', 'is_first_dirt': False
+                        'is_promotion_first': False, 'prev_class_name': '不明', 
+                        'is_first_dirt': False, 'is_first_turf': False
                     }
 
                     if not sub_df_m.empty:
@@ -361,6 +362,10 @@ with tab1:
                             # ★初ダート判定：今回がダート戦で、過去にダート出走経験がない場合
                             if p_track == "ダート" and not has_dirt and race_cnt > 0:
                                 matched_hist['is_first_dirt'] = True
+
+                            # ★初芝判定：今回が芝戦で、過去に芝出走経験がない場合
+                            if p_track == "芝" and not has_turf and race_cnt > 0:
+                                matched_hist['is_first_turf'] = True
 
                             # ★直近のレースから前走のクラスを判定
                             if 'race_class' in h_group.columns and len(h_group) > 0:
@@ -445,7 +450,8 @@ with tab1:
                         'has_history': matched_hist['race_count'] > 0,
                         'is_promotion_first': matched_hist['is_promotion_first'],
                         'prev_class_name': matched_hist['prev_class_name'],
-                        'is_first_dirt': matched_hist['is_first_dirt']
+                        'is_first_dirt': matched_hist['is_first_dirt'],
+                        'is_first_turf': matched_hist['is_first_turf']
                     })
                     i = j - 1
                 i += 1
@@ -463,13 +469,15 @@ with tab1:
                 'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
                 'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0,
                 'has_dirt_exp': True, 'has_turf_exp': True, 'has_history': False,
-                'is_promotion_first': False, 'prev_class_name': '不明', 'is_first_dirt': False
+                'is_promotion_first': False, 'prev_class_name': '不明',
+                'is_first_dirt': False, 'is_first_turf': False
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['has_history'])
         promo_count = sum(1 for x in input_data_list if x['is_promotion_first'])
         dirt_count = sum(1 for x in input_data_list if x['is_first_dirt'])
-        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(データ一致: {matched_count}頭 / ⚡️昇級初戦: {promo_count}頭 / ⚠️初ダート: **{dirt_count}頭**) ")
+        turf_count = sum(1 for x in input_data_list if x['is_first_turf'])
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(データ一致: {matched_count}頭 / ⚡️昇級初戦: {promo_count}頭 / ⚠️初ダート: {dirt_count}頭 / ⚠️初芝: **{turf_count}頭**) ")
 
     if st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
@@ -497,12 +505,12 @@ with tab1:
                 reverse_val = df_input['true_reverse_gap'].abs()
                 reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
 
-                # 昇級初戦の馬に対するマイナス補正
+                # 各種マイナス補正
                 promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
-                # ★初ダートの馬に対するマイナス補正（芝の参考実績からくる過剰評価を防ぐ）
                 dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
+                turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
 
-                score = model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+                score = model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
             except Exception as e:
                 rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
@@ -511,7 +519,8 @@ with tab1:
                 reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
                 promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
                 dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
-                score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+                turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
+                score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
         else:
             rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
             l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
@@ -520,14 +529,15 @@ with tab1:
             reverse_bonus = np.where(is_capable, reverse_val * 1.5, -reverse_val * 0.5)
             promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
             dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
-            score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+            turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
+            score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
 
         exp_s = np.exp(score - score.max())
         df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
 
         df_input = df_input.sort_values(by='win_prob', ascending=False).reset_index(drop=True)
         st.balloons()
-        st.subheader("🎯 ガチAI予測結果ランキング（昇級初戦・初ダート割引反映版）")
+        st.subheader("🎯 ガチAI予測結果ランキング（昇級初戦・初ダート・初芝割引反映版）")
 
         for idx, row in df_input.iterrows():
             u_num = row.get('umaban', idx+1)
@@ -546,12 +556,15 @@ with tab1:
             is_promo = row.get('is_promotion_first', False)
             prev_c = row.get('prev_class_name', '')
             is_dirt = row.get('is_first_dirt', False)
+            is_turf = row.get('is_first_turf', False)
 
             condition_tag = ""
             if is_promo:
                 condition_tag += f" ⚡️【昇級初戦 (前走:{prev_c})】"
             if is_dirt:
                 condition_tag += " ⚠️【初ダート】"
+            if is_turf:
+                condition_tag += " ⚠️【初芝】"
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
