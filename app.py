@@ -144,6 +144,7 @@ def load_master_data():
                     elif clean_c in ['年', 'year', 'Year']: col_mapping[c] = 'year'
                     elif clean_c in ['月', 'month', 'Month']: col_mapping[c] = 'month'
                     elif clean_c in ['日', 'day', 'Day']: col_mapping[c] = 'day'
+                    elif clean_c in ['ブリンカー', 'blinker', 'B']: col_mapping[c] = 'blinker'
                 
                 df_m = df_m.rename(columns=col_mapping)
                 break
@@ -189,6 +190,11 @@ def load_master_data():
 
     if 'race_class' not in df_m.columns:
         df_m['race_class'] = '1勝クラス'
+
+    if 'blinker' in df_m.columns:
+        df_m['blinker'] = pd.to_numeric(df_m['blinker'], errors='coerce').fillna(0)
+    else:
+        df_m['blinker'] = 0
 
     jockey_win_rates = {}
     if 'jockey' in df_m.columns and 'rank' in df_m.columns:
@@ -262,6 +268,7 @@ with tab1:
                     weight = 56.0
                     odds = 10.0
                     popularity = umaban
+                    is_blinker_now = 0
 
                     block_lines = []
                     j = i + 1
@@ -270,6 +277,11 @@ with tab1:
                             break
                         block_lines.append(lines[j])
                         j += 1
+
+                    for bl in block_lines:
+                        clean_b_str = clean_str(bl)
+                        if "B" in bl or "ブリンカー" in bl or "B" in clean_b_str:
+                            is_blinker_now = 1
 
                     for bl in block_lines:
                         clean_bl = clean_str(bl)
@@ -341,7 +353,8 @@ with tab1:
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_true_reverse_gap': 0.0,
                         'race_count': 0, 'sex': sex, 'has_dirt_exp': True, 'has_turf_exp': True,
                         'is_promotion_first': False, 'prev_class_name': '不明', 
-                        'is_first_dirt': False, 'is_first_turf': False
+                        'is_first_dirt': False, 'is_first_turf': False,
+                        'is_first_blinker': False
                     }
 
                     if not sub_df_m.empty:
@@ -386,6 +399,13 @@ with tab1:
                             # ★初芝判定：今回が芝戦で、過去に芝出走経験がない場合
                             if p_track == "芝" and not has_turf and race_cnt > 0:
                                 matched_hist['is_first_turf'] = True
+
+                            # ★初ブリンカー判定：今回B着用で、直近の過去レースでB着用経験がない場合
+                            if is_blinker_now == 1 and race_cnt > 0:
+                                last_row = h_group.iloc[-1]
+                                prev_blinker = int(last_row.get('blinker', 0)) if pd.notna(last_row.get('blinker', 0)) else 0
+                                if prev_blinker == 0:
+                                    matched_hist['is_first_blinker'] = True
 
                             # ★直近のレースから前走のクラスを判定
                             if 'race_class' in h_group.columns and len(h_group) > 0:
@@ -461,7 +481,7 @@ with tab1:
                         'past_best_rank': matched_hist['best_rank'],
                         'time_sec': matched_hist['avg_time'] if matched_hist['avg_time'] > 0 else 0.0,
                         'last_3f': matched_hist['avg_last_3f'],
-                        'blinker': 0, 
+                        'blinker': is_blinker_now, 
                         'corner_1st': c1_val,
                         'corner_4th': c4_val,
                         'true_reverse_gap': true_gap,
@@ -471,7 +491,8 @@ with tab1:
                         'is_promotion_first': matched_hist['is_promotion_first'],
                         'prev_class_name': matched_hist['prev_class_name'],
                         'is_first_dirt': matched_hist['is_first_dirt'],
-                        'is_first_turf': matched_hist['is_first_turf']
+                        'is_first_turf': matched_hist['is_first_turf'],
+                        'is_first_blinker': matched_hist['is_first_blinker']
                     })
                     i = j - 1
                 i += 1
@@ -490,14 +511,16 @@ with tab1:
                 'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0,
                 'has_dirt_exp': True, 'has_turf_exp': True, 'has_history': False,
                 'is_promotion_first': False, 'prev_class_name': '不明',
-                'is_first_dirt': False, 'is_first_turf': False
+                'is_first_dirt': False, 'is_first_turf': False,
+                'is_first_blinker': False
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['has_history'])
         promo_count = sum(1 for x in input_data_list if x['is_promotion_first'])
         dirt_count = sum(1 for x in input_data_list if x['is_first_dirt'])
         turf_count = sum(1 for x in input_data_list if x['is_first_turf'])
-        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(データ一致: {matched_count}頭 / ⚡️昇級初戦: {promo_count}頭 / ⚠️初ダート: {dirt_count}頭 / ⚠️初芝: **{turf_count}頭**) ")
+        blinker_count = sum(1 for x in input_data_list if x['is_first_blinker'])
+        st.success(f"✨ テキストから出走馬 **{len(input_data_list)}頭** を検出！(データ一致: {matched_count}頭 / ⚡️昇級初戦: {promo_count}頭 / ⚠️初ダート: {dirt_count}頭 / ⚠️初芝: {turf_count}頭 / ⚡️初B: **{blinker_count}頭**) ")
 
     if st.button("🚀 ガチ予測を実行する！"):
         df_input = pd.DataFrame(input_data_list)
@@ -630,6 +653,7 @@ with tab1:
             prev_c = row.get('prev_class_name', '')
             is_dirt = row.get('is_first_dirt', False)
             is_turf = row.get('is_first_turf', False)
+            is_f_blinker = row.get('is_first_blinker', False)
 
             condition_tag = ""
             if is_promo:
@@ -638,6 +662,8 @@ with tab1:
                 condition_tag += " ⚠️【初ダート】"
             if is_turf:
                 condition_tag += " ⚠️【初芝】"
+            if is_f_blinker:
+                condition_tag += " ⚡️【初ブリンカー】"
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
