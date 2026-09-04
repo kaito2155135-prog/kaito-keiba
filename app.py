@@ -589,7 +589,7 @@ with tab1:
                 heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
                 heavy_track_bonus = np.where(
                     is_day_heavy_condition,
-                    heavy_win_cnt * 3.5,  # 当日重・不良のとき、道悪実績1回につき +3.5点
+                    heavy_win_cnt * 7.0,  # 当日重・不良のとき、道悪実績1回につき +7.0点
                     heavy_win_cnt * 1.0   # 良・稍重のときでもタフな馬場適性として微増 +1.0点
                 )
 
@@ -625,7 +625,7 @@ with tab1:
                 heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
                 heavy_track_bonus = np.where(
                     is_day_heavy_condition,
-                    heavy_win_cnt * 3.5,
+                    heavy_win_cnt * 7.0,
                     heavy_win_cnt * 1.0
                 )
 
@@ -661,7 +661,7 @@ with tab1:
             heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
             heavy_track_bonus = np.where(
                 is_day_heavy_condition,
-                heavy_win_cnt * 3.5,
+                heavy_win_cnt * 7.0,
                 heavy_win_cnt * 1.0
             )
 
