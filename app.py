@@ -354,7 +354,7 @@ with tab1:
                         'race_count': 0, 'sex': sex, 'has_dirt_exp': True, 'has_turf_exp': True,
                         'is_promotion_first': False, 'prev_class_name': '不明', 
                         'is_first_dirt': False, 'is_first_turf': False,
-                        'is_first_blinker': False
+                        'is_first_blinker': False, 'heavy_track_wins_count': 0
                     }
 
                     if not sub_df_m.empty:
@@ -391,6 +391,12 @@ with tab1:
                             has_dirt = h_group['track'].astype(str).str.contains('ダート|ダ', regex=True).any()
                             has_turf = h_group['track'].astype(str).str.contains('芝', regex=True).any()
                             race_cnt = len(h_group)
+
+                            # ★道悪（重・不良）実績のカウント（過去に重・不良馬場で3着以内に入った回数）
+                            if 'condition' in h_group.columns and 'rank' in h_group.columns:
+                                heavy_cond_rows = h_group[h_group['condition'].astype(str).str.contains('重|不良|不', regex=True)]
+                                heavy_good_rows = heavy_cond_rows[heavy_cond_rows['rank'] <= 3]
+                                matched_hist['heavy_track_wins_count'] = len(heavy_good_rows)
 
                             # ★初ダート判定：今回がダート戦で、過去にダート出走経験がない場合
                             if p_track == "ダート" and not has_dirt and race_cnt > 0:
@@ -492,7 +498,8 @@ with tab1:
                         'prev_class_name': matched_hist['prev_class_name'],
                         'is_first_dirt': matched_hist['is_first_dirt'],
                         'is_first_turf': matched_hist['is_first_turf'],
-                        'is_first_blinker': matched_hist['is_first_blinker']
+                        'is_first_blinker': matched_hist['is_first_blinker'],
+                        'heavy_track_wins_count': matched_hist['heavy_track_wins_count']
                     })
                     i = j - 1
                 i += 1
@@ -512,7 +519,7 @@ with tab1:
                 'has_dirt_exp': True, 'has_turf_exp': True, 'has_history': False,
                 'is_promotion_first': False, 'prev_class_name': '不明',
                 'is_first_dirt': False, 'is_first_turf': False,
-                'is_first_blinker': False
+                'is_first_blinker': False, 'heavy_track_wins_count': 0
             })
     else:
         matched_count = sum(1 for x in input_data_list if x['has_history'])
@@ -572,7 +579,21 @@ with tab1:
                 dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
                 turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
 
-                score = model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+                # ★【追加】重・不良馬場における補正ロジック（両方対応）
+                # 1. 開催当日の馬場状態が「重」または「不良」の場合の全体補正係数（良馬場型を少し割り引くか、全体への影響を調整）
+                # 2. 過去の道悪（重・不良）での好走実績に応じたボーナス加点
+                is_day_heavy_condition = str(p_condition).strip() in ["重", "不良"]
+                heavy_track_global_bonus = np.where(is_day_heavy_condition, 1.2, 1.0) # 当日重・不良ならベーススコア係数を微増・調整
+                
+                # 道悪実績ボーナス（重・不良で好走した回数 × 加点ウェイト）
+                heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
+                heavy_track_bonus = np.where(
+                    is_day_heavy_condition,
+                    heavy_win_cnt * 3.5,  # 当日重・不良のとき、道悪実績1回につき +3.5点
+                    heavy_win_cnt * 1.0   # 良・稍重のときでもタフな馬場適性として微増 +1.0点
+                )
+
+                score = (model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + heavy_track_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5) * heavy_track_global_bonus
             except Exception as e:
                 rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
@@ -599,7 +620,16 @@ with tab1:
                 promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
                 dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
                 turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
-                score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+
+                is_day_heavy_condition = str(p_condition).strip() in ["重", "不良"]
+                heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
+                heavy_track_bonus = np.where(
+                    is_day_heavy_condition,
+                    heavy_win_cnt * 3.5,
+                    heavy_win_cnt * 1.0
+                )
+
+                score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + heavy_track_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
         else:
             rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
             l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
@@ -626,7 +656,16 @@ with tab1:
             promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
             dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
             turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
-            score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
+
+            is_day_heavy_condition = str(p_condition).strip() in ["重", "不良"]
+            heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
+            heavy_track_bonus = np.where(
+                is_day_heavy_condition,
+                heavy_win_cnt * 3.5,
+                heavy_win_cnt * 1.0
+            )
+
+            score = rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + heavy_track_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5
 
         exp_s = np.exp(score - score.max())
         df_input['win_prob'] = (exp_s / exp_s.sum()) * 100
@@ -654,6 +693,7 @@ with tab1:
             is_dirt = row.get('is_first_dirt', False)
             is_turf = row.get('is_first_turf', False)
             is_f_blinker = row.get('is_first_blinker', False)
+            h_wins_cnt = row.get('heavy_track_wins_count', 0)
 
             condition_tag = ""
             if is_promo:
@@ -664,6 +704,8 @@ with tab1:
                 condition_tag += " ⚠️【初芝】"
             if is_f_blinker:
                 condition_tag += " ⚡️【初ブリンカー】"
+            if h_wins_cnt > 0:
+                condition_tag += f" 💧【道悪実績:{h_wins_cnt}回】"
 
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
             corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
