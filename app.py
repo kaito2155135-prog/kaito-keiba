@@ -612,7 +612,7 @@ with tab1:
                 heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
                 heavy_track_bonus = np.where(
                     is_day_heavy_condition,
-                    heavy_win_cnt * 6.0,  
+                    heavy_win_cnt * 5.0,  
                     heavy_win_cnt * 1.0   
                 )
 
@@ -648,7 +648,7 @@ with tab1:
                 heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
                 heavy_track_bonus = np.where(
                     is_day_heavy_condition,
-                    heavy_win_cnt * 6.0,
+                    heavy_win_cnt * 5.0,
                     heavy_win_cnt * 1.0
                 )
 
@@ -684,7 +684,7 @@ with tab1:
             heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
             heavy_track_bonus = np.where(
                 is_day_heavy_condition,
-                heavy_win_cnt * 6.0,
+                heavy_win_cnt * 5.0,
                 heavy_win_cnt * 1.0
             )
 
