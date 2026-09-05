@@ -361,18 +361,24 @@ with tab1:
                         # 1. まず完全一致を最優先で探す
                         h_group = sub_df_m[sub_df_m['name'] == clean_h_name]
                         
-                        # 2. 完全一致が見つからない場合、前方一致や部分一致を許可する
+                        # 2. 完全一致しない場合、より安全な柔軟マッチングを行う
                         if h_group.empty and len(clean_h_name) >= 2:
                             matched_name = None
-                            for m_name in sub_df_m['name'].unique():
-                                if clean_h_name == m_name:
+                            unique_names = sub_df_m['name'].unique()
+                            
+                            # ① 前方一致・後方一致を優先的に探す（誤爆を防ぐため）
+                            for m_name in unique_names:
+                                if clean_h_name == m_name or clean_h_name.startswith(m_name) or m_name.startswith(clean_h_name):
                                     matched_name = m_name
                                     break
-                                # どちらかが含まれていれば候補とする（文字数制限を2文字以上に緩和）
-                                elif len(clean_h_name) >= 2 and len(m_name) >= 2:
-                                    if clean_h_name in m_name or m_name in clean_h_name:
-                                        matched_name = m_name
-                                        break
+                            
+                            # ② それでも見つからない場合のみ部分一致を許可
+                            if not matched_name:
+                                for m_name in unique_names:
+                                    if len(clean_h_name) >= 2 and len(m_name) >= 2:
+                                        if clean_h_name in m_name or m_name in clean_h_name:
+                                            matched_name = m_name
+                                            break
                             
                             if matched_name:
                                 h_group = sub_df_m[sub_df_m['name'] == matched_name]
