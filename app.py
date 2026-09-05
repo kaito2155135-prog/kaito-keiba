@@ -7,7 +7,7 @@ import re
 import warnings
 import unicodedata
 from sklearn.exceptions import InconsistentVersionWarning
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import OrdinalEncoder
 
 warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -291,8 +291,7 @@ with tab1:
 
                     if h_name.startswith("馬番"):
                         for bl in block_lines:
-                            # 記号や数字だけの塊、体重増減 `(+4)` などを除外して純粋な馬名候補を探す
-                            temp_bl = re.sub(r'[\(\（].*?[\)\）]', '', bl)  # カッコ内（体重増減など）を削除
+                            temp_bl = re.sub(r'[\(\（].*?[\)\）]', '', bl)
                             clean_b = clean_str(temp_bl)
                             if clean_b and not clean_b.isdigit() and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "セン", "kg"]) and len(clean_b) >= 2:
                                 h_name = clean_b
@@ -311,7 +310,6 @@ with tab1:
                                             age = int(left_part[0])
                                             left_part = left_part[1:].lstrip()
                                 
-                                # 馬名から余計な体重表記などを削る
                                 left_part = re.sub(r'[\(\（].*?[\)\）]', '', left_part).strip()
                                 clean_left = clean_str(left_part)
                                 if clean_left and not clean_left.isdigit() and (h_name.startswith("馬番") or len(clean_left) > len(h_name)):
@@ -545,9 +543,20 @@ with tab1:
             try:
                 df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
                 df_full = df_full.loc[:, ~df_full.columns.duplicated()]
-                for col in ['place', 'track', 'condition', 'sire', 'race_class']:
+                
+                # --- OrdinalEncoder による安全なエンコーディング処理 ---
+                cat_cols = ['place', 'track', 'condition', 'sire', 'race_class']
+                encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+                
+                for col in cat_cols:
                     if col in df_full.columns:
-                        df_full[col] = LabelEncoder().fit_transform(df_full[col].astype(str))
+                        df_full[col] = df_full[col].astype(str)
+                
+                existing_cat_cols = [c for c in cat_cols if c in df_full.columns]
+                if existing_cat_cols:
+                    df_full[existing_cat_cols] = encoder.fit_transform(df_full[existing_cat_cols])
+                # ---------------------------------------------------
+
                 df_input_enc = df_full.tail(len(df_input)).copy()
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'true_reverse_gap', 'race_class', 'time_sec', 'last_3f']
                 for f in features:
@@ -787,9 +796,18 @@ with tab3:
                 if len(df_train) > 10000: df_train = df_train.sample(n=10000, random_state=42)
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
 
-                for col in ['place', 'track', 'condition', 'sire', 'race_class']:
+                # --- 再学習時も同様に OrdinalEncoder で安全にエンコード ---
+                cat_cols = ['place', 'track', 'condition', 'sire', 'race_class']
+                encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+                
+                for col in cat_cols:
                     if col in df_train.columns:
-                        df_train[col] = LabelEncoder().fit_transform(df_train[col].astype(str))
+                        df_train[col] = df_train[col].astype(str)
+                
+                existing_cat_cols = [c for c in cat_cols if c in df_train.columns]
+                if existing_cat_cols:
+                    df_train[existing_cat_cols] = encoder.fit_transform(df_train[existing_cat_cols])
+                # ----------------------------------------------------
 
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'true_reverse_gap', 'race_class', 'time_sec', 'last_3f']
                 for f in features:
