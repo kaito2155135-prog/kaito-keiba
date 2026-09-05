@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import os
+import re
 import warnings
 import unicodedata
 from sklearn.exceptions import InconsistentVersionWarning
@@ -290,9 +291,10 @@ with tab1:
 
                     if h_name.startswith("馬番"):
                         for bl in block_lines:
-                            clean_b = clean_str(bl.replace("--", ""))
-                            # 数字のみの文字列は馬名として除外する修正
-                            if clean_b and not clean_b.isdigit() and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "kg"]) and len(clean_b) >= 2:
+                            # 記号や数字だけの塊、体重増減 `(+4)` などを除外して純粋な馬名候補を探す
+                            temp_bl = re.sub(r'[\(\（].*?[\)\）]', '', bl)  # カッコ内（体重増減など）を削除
+                            clean_b = clean_str(temp_bl)
+                            if clean_b and not clean_b.isdigit() and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "セン", "kg"]) and len(clean_b) >= 2:
                                 h_name = clean_b
                                 break
 
@@ -308,8 +310,12 @@ with tab1:
                                         if left_part and left_part[0].isdigit():
                                             age = int(left_part[0])
                                             left_part = left_part[1:].lstrip()
-                                if left_part and not left_part.isdigit() and (h_name.startswith("馬番") or len(left_part) > len(h_name)):
-                                    h_name = left_part
+                                
+                                # 馬名から余計な体重表記などを削る
+                                left_part = re.sub(r'[\(\（].*?[\)\）]', '', left_part).strip()
+                                clean_left = clean_str(left_part)
+                                if clean_left and not clean_left.isdigit() and (h_name.startswith("馬番") or len(clean_left) > len(h_name)):
+                                    h_name = clean_left
 
                             if len(parts) > 1:
                                 right_part = parts[1].strip()
