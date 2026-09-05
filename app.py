@@ -353,7 +353,7 @@ with tab1:
                     clean_h_name = clean_str(h_name)
 
                     matched_hist = {
-                        'avg_rank': 5.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
+                        'avg_rank': 6.0, 'best_rank': 5.0, 'avg_time': 0.0, 'avg_last_3f': 35.0,
                         'avg_corner_1st': np.nan, 'avg_corner_4th': np.nan, 'avg_true_reverse_gap': 0.0,
                         'race_count': 0, 'sex': sex, 'has_dirt_exp': True, 'has_turf_exp': True,
                         'is_promotion_first': False, 'prev_class_name': '不明', 
@@ -506,20 +506,40 @@ with tab1:
         input_data_list = []
 
     if len(input_data_list) == 0:
-        st.warning("⚠️ テキスト未入力または解析対象外のため、デフォルトの8頭で表示しています。")
-        np.random.seed(42)
-        for i in range(8):
-            input_data_list.append({
-                'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
-                'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
-                'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
-                'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
-                'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0,
-                'has_dirt_exp': True, 'has_turf_exp': True, 'has_history': False,
-                'is_promotion_first': False, 'prev_class_name': '不明',
-                'is_first_dirt': False, 'is_first_turf': False,
-                'is_first_blinker': False, 'heavy_track_wins_count': 0
-            })
+        st.warning("⚠️ テキスト解析できなかったため、一括シンプル抽出モード（またはデフォルト8頭）に切り替えます。以下のテキストエリアに『馬名』だけでも改行区切りで入れてみてください！")
+        
+        # フォールバック：単に改行された文字列から馬名候補を抽出する
+        if raw_text.strip():
+            lines = [l.strip() for l in raw_text.strip().splitlines() if l.strip()]
+            for idx, l in enumerate(lines[:18]):
+                clean_l = clean_str(l)
+                if len(clean_l) >= 2 and not clean_l.isdigit():
+                    input_data_list.append({
+                        'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
+                        'race_class': p_class, 'waku': ((idx)//2)+1, 'umaban': idx+1, 'name': clean_l, 'sex': '牡', 'age': 4, 'sire': '不明',
+                        'odds': float(idx+2), 'popularity': idx+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
+                        'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
+                        'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0,
+                        'has_dirt_exp': True, 'has_turf_exp': True, 'has_history': False,
+                        'is_promotion_first': False, 'prev_class_name': '不明',
+                        'is_first_dirt': False, 'is_first_turf': False,
+                        'is_first_blinker': False, 'heavy_track_wins_count': 0
+                    })
+
+        if len(input_data_list) == 0:
+            np.random.seed(42)
+            for i in range(8):
+                input_data_list.append({
+                    'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
+                    'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
+                    'odds': float(i+2), 'popularity': i+1, 'weight': 56.0, 'jockey': '不明', 'jockey_win_rate': 0.08,
+                    'past_avg_rank': 5.0, 'past_best_rank': 5.0, 'time_sec': 0.0, 'last_3f': 35.0, 'blinker': 0, 
+                    'corner_1st': 5.0, 'corner_4th': 7.0, 'true_reverse_gap': 0.0,
+                    'has_dirt_exp': True, 'has_turf_exp': True, 'has_history': False,
+                    'is_promotion_first': False, 'prev_class_name': '不明',
+                    'is_first_dirt': False, 'is_first_turf': False,
+                    'is_first_blinker': False, 'heavy_track_wins_count': 0
+                })
     else:
         matched_count = sum(1 for x in input_data_list if x['has_history'])
         promo_count = sum(1 for x in input_data_list if x['is_promotion_first'])
@@ -544,7 +564,6 @@ with tab1:
                 df_full = pd.concat([df_m_auto, df_input], ignore_index=True) if not df_m_auto.empty else df_input
                 df_full = df_full.loc[:, ~df_full.columns.duplicated()]
                 
-                # --- OrdinalEncoder による安全なエンコーディング処理 ---
                 cat_cols = ['place', 'track', 'condition', 'sire', 'race_class']
                 encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
                 
@@ -555,7 +574,6 @@ with tab1:
                 existing_cat_cols = [c for c in cat_cols if c in df_full.columns]
                 if existing_cat_cols:
                     df_full[existing_cat_cols] = encoder.fit_transform(df_full[existing_cat_cols])
-                # ---------------------------------------------------
 
                 df_input_enc = df_full.tail(len(df_input)).copy()
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'true_reverse_gap', 'race_class', 'time_sec', 'last_3f']
@@ -796,7 +814,6 @@ with tab3:
                 if len(df_train) > 10000: df_train = df_train.sample(n=10000, random_state=42)
                 df_train['target'] = (pd.to_numeric(df_train['rank'], errors='coerce') == 1).astype(int)
 
-                # --- 再学習時も同様に OrdinalEncoder で安全にエンコード ---
                 cat_cols = ['place', 'track', 'condition', 'sire', 'race_class']
                 encoder = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
                 
@@ -807,7 +824,6 @@ with tab3:
                 existing_cat_cols = [c for c in cat_cols if c in df_train.columns]
                 if existing_cat_cols:
                     df_train[existing_cat_cols] = encoder.fit_transform(df_train[existing_cat_cols])
-                # ----------------------------------------------------
 
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'true_reverse_gap', 'race_class', 'time_sec', 'last_3f']
                 for f in features:
