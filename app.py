@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 st.title("🐎【昇級初戦・初ダート・初芝の壁・自動補正付き】スマホで育てる！競馬AIマスターアプリ")
-st.write("ベースは直近7走平均＆競馬場トラック一致！さらに『昇級初戦・初ダート・初芝の過剰人気馬が凡走する人間の感覚』をAIのスコアに自動反映する進化版！🔥")
+st.write("ベースは直近5走平均＆競馬場トラック一致！さらに『昇級初戦・初ダート・初芝の過剰人気馬が凡走する人間の感覚』をAIのスコアに自動反映する進化版！🔥")
 
 def clean_str(s):
     if not s:
@@ -432,9 +432,9 @@ with tab1:
                             else:
                                 sub_sub = h_group
 
-                            recent_sub = sub_sub.dropna(subset=['rank']).tail(7)
+                            recent_sub = sub_sub.dropna(subset=['rank']).tail(5)
                             if len(recent_sub) == 0:
-                                recent_sub = h_group.dropna(subset=['rank']).tail(7)
+                                recent_sub = h_group.dropna(subset=['rank']).tail(5)
 
                             if len(recent_sub) > 0:
                                 matched_hist['avg_rank'] = recent_sub['rank'].mean()
