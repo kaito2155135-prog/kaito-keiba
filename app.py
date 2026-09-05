@@ -508,7 +508,6 @@ with tab1:
     if len(input_data_list) == 0:
         st.warning("⚠️ テキスト解析できなかったため、一括シンプル抽出モード（またはデフォルト8頭）に切り替えます。以下のテキストエリアに『馬名』だけでも改行区切りで入れてみてください！")
         
-        # フォールバック：単に改行された文字列から馬名候補を抽出する
         if raw_text.strip():
             lines = [l.strip() for l in raw_text.strip().splitlines() if l.strip()]
             for idx, l in enumerate(lines[:18]):
@@ -613,7 +612,7 @@ with tab1:
                 heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
                 heavy_track_bonus = np.where(
                     is_day_heavy_condition,
-                    heavy_win_cnt * 7.0,  
+                    heavy_win_cnt * 6.0,  
                     heavy_win_cnt * 1.0   
                 )
 
@@ -649,7 +648,7 @@ with tab1:
                 heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
                 heavy_track_bonus = np.where(
                     is_day_heavy_condition,
-                    heavy_win_cnt * 7.0,
+                    heavy_win_cnt * 6.0,
                     heavy_win_cnt * 1.0
                 )
 
@@ -685,7 +684,7 @@ with tab1:
             heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
             heavy_track_bonus = np.where(
                 is_day_heavy_condition,
-                heavy_win_cnt * 7.0,
+                heavy_win_cnt * 6.0,
                 heavy_win_cnt * 1.0
             )
 
