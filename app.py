@@ -541,6 +541,11 @@ with tab1:
         df_input['popularity'] = pd.to_numeric(df_input['popularity'], errors='coerce').fillna(99)
         df_input['distance'] = float(p_distance)
         df_input['condition'] = str(p_condition)
+        
+        # 欠損値（nan）によるスコア算出の破綻を防ぐためのデフォルト値補完
+        df_input['corner_1st'] = pd.to_numeric(df_input['corner_1st'], errors='coerce').fillna(5.0)
+        df_input['corner_4th'] = pd.to_numeric(df_input['corner_4th'], errors='coerce').fillna(7.0)
+        df_input['true_reverse_gap'] = pd.to_numeric(df_input['true_reverse_gap'], errors='coerce').fillna(0.0)
 
         if model is not None:
             try:
@@ -558,20 +563,17 @@ with tab1:
                 rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
                 l3f_bonus = (38.0 - df_input['last_3f']).clip(lower=0) * 2.0
                 
-                # ★【アップデート】展開逆行（展開不利を覆した強さ）の非対称評価ロジック
-                # レース全体の4角平均バイアスを算出（全体が前残りか、差し・追込展開か）
                 race_bias_4th_val = df_input['true_reverse_gap'].mean() if len(df_input) > 0 else 6.0
-                is_heavy_track_bias = race_bias_4th_val <= 5.0  # 前残り展開の目安
-                is_chaser = df_input['corner_4th'] >= 10.0      # 後方からの競馬
+                is_heavy_track_bias = race_bias_4th_val <= 5.0  
+                is_chaser = df_input['corner_4th'] >= 10.0      
                 is_capable = df_input['past_avg_rank'] <= 7.0
 
-                # 展開に逆行して健闘した場合に大きなプラスボーナス、逆に展開利を得ただけの馬は据え置き/割引
                 reverse_bonus = np.where(
                     (is_heavy_track_bias & is_chaser) & is_capable,
-                    +4.5,  # 前残りなのに後方から突っ込んだ馬（強い競馬）
+                    +4.5,  
                     np.where(
                         (~is_heavy_track_bias & (df_input['corner_4th'] <= 4.0)) & is_capable,
-                        +4.5,  # 差し・追込展開なのに前々から粘った馬（強い競馬）
+                        +4.5,  
                         np.where(
                             is_capable,
                             df_input['true_reverse_gap'].abs() * 1.5,
@@ -580,23 +582,18 @@ with tab1:
                     )
                 )
 
-                # 各種マイナス補正
                 promo_penalty = np.where(df_input['is_promotion_first'], -5.0, 0.0)
                 dirt_penalty = np.where(df_input['is_first_dirt'], -6.0, 0.0)
                 turf_penalty = np.where(df_input['is_first_turf'], -6.0, 0.0)
 
-                # ★【追加】重・不良馬場における補正ロジック（両方対応）
-                # 1. 開催当日の馬場状態が「重」または「不良」の場合の全体補正係数（良馬場型を少し割り引くか、全体への影響を調整）
-                # 2. 過去の道悪（重・不良）での好走実績に応じたボーナス加点
                 is_day_heavy_condition = str(p_condition).strip() in ["重", "不良"]
-                heavy_track_global_bonus = np.where(is_day_heavy_condition, 1.2, 1.0) # 当日重・不良ならベーススコア係数を微増・調整
+                heavy_track_global_bonus = np.where(is_day_heavy_condition, 1.2, 1.0) 
                 
-                # 道悪実績ボーナス（重・不良で好走した回数 × 加点ウェイト）
                 heavy_win_cnt = df_input.get('heavy_track_wins_count', 0)
                 heavy_track_bonus = np.where(
                     is_day_heavy_condition,
-                    heavy_win_cnt * 7.0,  # 当日重・不良のとき、道悪実績1回につき +7.0点
-                    heavy_win_cnt * 1.0   # 良・稍重のときでもタフな馬場適性として微増 +1.0点
+                    heavy_win_cnt * 7.0,  
+                    heavy_win_cnt * 1.0   
                 )
 
                 score = (model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + heavy_track_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5) * heavy_track_global_bonus
@@ -691,7 +688,7 @@ with tab1:
             h_odds = row.get('odds', 10.0)
             h_jockey = row.get('jockey', '不明')
             c_1st = row.get('corner_1st', np.nan)
-            c_4th = row.get('corner_4th', 7.0)
+            c_4th = row.get('corner_4th', np.nan)
             t_gap = row.get('true_reverse_gap', 0.0)
             
             is_promo = row.get('is_promotion_first', False)
@@ -713,8 +710,11 @@ with tab1:
             if h_wins_cnt > 0:
                 condition_tag += f" 💧【道悪実績:{h_wins_cnt}回】"
 
+            c_1st_str = f"{c_1st:.1f}" if pd.notna(c_1st) else "不明"
+            c_4th_str = f"{c_4th:.1f}" if pd.notna(c_4th) else "不明"
+            
             is_short = float(p_distance) <= 1200 or pd.isna(c_1st)
-            corner_str = f"4角: {c_4th:.1f}" if is_short else f"通過順[1角->4角]: {c_1st:.1f}->{c_4th:.1f}"
+            corner_str = f"4角: {c_4th_str}" if is_short else f"通過順[1角->4角]: {c_1st_str}->{c_4th_str}"
 
             st.write(f"**第 {idx+1} 位**: 馬番 {u_num} 🐴 {h_sex}{h_age} **{h_name}**{condition_tag} (予測勝率: **{h_prob:.2f}%** / 調整平均着順: {h_avg:.1f}着 / {corner_str} / **真の逆行度: {t_gap:+.1f}** / 上がり3F: {h_l3f:.1f}秒 / オッズ: {h_odds}倍 / 騎手: {h_jockey})")
 
