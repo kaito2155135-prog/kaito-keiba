@@ -32,7 +32,6 @@ def load_model():
 
 model = load_model()
 
-# ★クラスの序列マップ（オープン以上と重賞をそれぞれ一括り）
 CLASS_RANK_MAP = {
     "新馬": 0, 
     "未勝利": 1, 
@@ -48,7 +47,7 @@ def get_class_level(class_name):
     for k, v in CLASS_RANK_MAP.items():
         if k in c_str:
             return v
-    return 2 # デフォルトは1勝クラス相当
+    return 2
 
 def parse_corner_positions_from_row(row):
     c1, c4 = np.nan, np.nan
@@ -235,7 +234,7 @@ with tab1:
             pasted_horse_candidates = set()
             for line in lines:
                 c_l = clean_str(line)
-                if len(c_l) >= 2 and not any(kw in c_l for kw in ["人気", "データベース", "牡", "牝", "セ", "kg", "東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"]):
+                if len(c_l) >= 2 and not c_l.isdigit() and not any(kw in c_l for kw in ["人気", "データベース", "牡", "牝", "セ", "kg", "東京", "中山", "京都", "阪神", "中京", "新潟", "小倉", "札幌", "函館"]):
                     pasted_horse_candidates.add(c_l)
 
             sub_df_m = pd.DataFrame()
@@ -292,7 +291,8 @@ with tab1:
                     if h_name.startswith("馬番"):
                         for bl in block_lines:
                             clean_b = clean_str(bl.replace("--", ""))
-                            if clean_b and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "kg"]) and len(clean_b) >= 2:
+                            # 数字のみの文字列は馬名として除外する修正
+                            if clean_b and not clean_b.isdigit() and not any(kw in clean_b for kw in ["人気", "データベース", "牡", "牝", "セ", "kg"]) and len(clean_b) >= 2:
                                 h_name = clean_b
                                 break
 
@@ -308,7 +308,7 @@ with tab1:
                                         if left_part and left_part[0].isdigit():
                                             age = int(left_part[0])
                                             left_part = left_part[1:].lstrip()
-                                if left_part and (h_name.startswith("馬番") or len(left_part) > len(h_name)):
+                                if left_part and not left_part.isdigit() and (h_name.startswith("馬番") or len(left_part) > len(h_name)):
                                     h_name = left_part
 
                             if len(parts) > 1:
@@ -358,21 +358,17 @@ with tab1:
                     }
 
                     if not sub_df_m.empty:
-                        # 1. まず完全一致を最優先で探す
                         h_group = sub_df_m[sub_df_m['name'] == clean_h_name]
                         
-                        # 2. 完全一致しない場合、より安全な柔軟マッチングを行う
                         if h_group.empty and len(clean_h_name) >= 2:
                             matched_name = None
                             unique_names = sub_df_m['name'].unique()
                             
-                            # ① 前方一致・後方一致を優先的に探す（誤爆を防ぐため）
                             for m_name in unique_names:
                                 if clean_h_name == m_name or clean_h_name.startswith(m_name) or m_name.startswith(clean_h_name):
                                     matched_name = m_name
                                     break
                             
-                            # ② それでも見つからない場合のみ部分一致を許可
                             if not matched_name:
                                 for m_name in unique_names:
                                     if len(clean_h_name) >= 2 and len(m_name) >= 2:
@@ -385,7 +381,6 @@ with tab1:
                                 clean_h_name = matched_name
 
                         if not h_group.empty:
-                            # 日付順に確実にソートしてから最新の履歴を一番上に持ってくる
                             sort_cols = [c for c in ['year', 'month', 'day'] if c in h_group.columns]
                             if sort_cols:
                                 h_group = h_group.sort_values(by=sort_cols, ascending=True)
@@ -398,35 +393,29 @@ with tab1:
                             has_turf = h_group['track'].astype(str).str.contains('芝', regex=True).any()
                             race_cnt = len(h_group)
 
-                            # ★道悪（重・不良）実績のカウント（過去に重・不良馬場で3着以内に入った回数）
                             if 'condition' in h_group.columns and 'rank' in h_group.columns:
                                 heavy_cond_rows = h_group[h_group['condition'].astype(str).str.contains('重|不良|不', regex=True)]
                                 heavy_good_rows = heavy_cond_rows[heavy_cond_rows['rank'] <= 3]
                                 matched_hist['heavy_track_wins_count'] = len(heavy_good_rows)
 
-                            # ★初ダート判定：今回がダート戦で、過去にダート出走経験がない場合
                             if p_track == "ダート" and not has_dirt and race_cnt > 0:
                                 matched_hist['is_first_dirt'] = True
 
-                            # ★初芝判定：今回が芝戦で、過去に芝出走経験がない場合
                             if p_track == "芝" and not has_turf and race_cnt > 0:
                                 matched_hist['is_first_turf'] = True
 
-                            # ★初ブリンカー判定：今回B着用で、直近の過去レースでB着用経験がない場合
                             if is_blinker_now == 1 and race_cnt > 0:
                                 last_row = h_group.iloc[-1]
                                 prev_blinker = int(last_row.get('blinker', 0)) if pd.notna(last_row.get('blinker', 0)) else 0
                                 if prev_blinker == 0:
                                     matched_hist['is_first_blinker'] = True
 
-                            # ★直近のレースから前走のクラスを判定
                             if 'race_class' in h_group.columns and len(h_group) > 0:
                                 last_row = h_group.iloc[-1]
                                 prev_c_name = str(last_row.get('race_class', '1勝クラス'))
                                 prev_level = get_class_level(prev_c_name)
                                 matched_hist['prev_class_name'] = prev_c_name
                                 
-                                # 今回のクラスレベルが前走より高い ＝ 昇級初戦！
                                 if current_target_class_level > prev_level:
                                     matched_hist['is_promotion_first'] = True
 
@@ -542,7 +531,6 @@ with tab1:
         df_input['distance'] = float(p_distance)
         df_input['condition'] = str(p_condition)
         
-        # 欠損値（nan）によるスコア算出の破綻を防ぐためのデフォルト値補完
         df_input['corner_1st'] = pd.to_numeric(df_input['corner_1st'], errors='coerce').fillna(5.0)
         df_input['corner_4th'] = pd.to_numeric(df_input['corner_4th'], errors='coerce').fillna(7.0)
         df_input['true_reverse_gap'] = pd.to_numeric(df_input['true_reverse_gap'], errors='coerce').fillna(0.0)
