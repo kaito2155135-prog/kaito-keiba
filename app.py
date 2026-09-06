@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 import lightgbm as lgb
 from sklearn.preprocessing import LabelEncoder
 
@@ -14,11 +15,25 @@ st.markdown("条件変更 × 展開不利 × 同レース好走馬多数 × 単�
 # ---------------------------------------------------------
 @st.cache_data
 def load_master_data():
-    # ※ここに実際のCSVやJRA-VANデータ読み込み処理が入ります
-    # サンプルとしてダミーのデータフレームを作成して返します
+    target_file = 'keiba_master_data_part2.csv'
+    if os.path.exists(target_file):
+        try:
+            df_m = pd.read_csv(target_file)
+            st.sidebar.success(f"'{target_file}' を正常に読み込みました。")
+        except Exception as e:
+            st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
+            df_m = create_dummy_data()
+    else:
+        st.sidebar.warning(f"'{target_file}' が見つからないため、サンプルデータで動作します。")
+        df_m = create_dummy_data()
+        
+    jockey_win_rates = {}
+    return df_m, jockey_win_rates
+
+def create_dummy_data():
     np.random.seed(42)
     n_samples = 1000
-    df_m = pd.DataFrame({
+    return pd.DataFrame({
         'race_id': [f"R_{i%100:03d}" for i in range(n_samples)],
         'name': [f"馬A_{i%50}" for i in range(n_samples)],
         'year': 2025,
@@ -31,8 +46,6 @@ def load_master_data():
         'true_reverse_gap': np.random.uniform(-5.0, 5.0, n_samples),
         'sex': np.random.choice(['牡', '牝', 'セン'], n_samples),
     })
-    jockey_win_rates = {}
-    return df_m, jockey_win_rates
 
 def calculate_member_level_score(df_m):
     if 'race_id' not in df_m.columns or 'rank' not in df_m.columns or 'name' not in df_m.columns:
@@ -63,19 +76,16 @@ with tab1:
     st.subheader("出走馬データの入力・インポート")
     uploaded_file = st.file_uploader("netkeibaやJRA-VANのテキスト・CSVデータをアップロード", type=['csv', 'txt'])
     
-    # サンプル用の一覧入力フォームの代替として簡易データ作成
     if st.button("🚀 穴馬激走予測を実行する"):
-        # プレースホルダーとしての入力データフレーム
         df_input = pd.DataFrame({
             'name': ['テイエムサクセス', 'マイネルダビデ', 'シゲルカゼノオ', 'スマートレイチェル'],
-            'odds': [45.2, 18.5, 82.1, 4.2], # 4.2倍（本命）はペナルティ対象になるかテスト
+            'odds': [45.2, 18.5, 82.1, 4.2],
             'prev_rank': [8.0, 12.0, 7.0, 2.0],
             'is_course_changed': [True, True, True, False],
             'true_reverse_gap': [-3.2, -1.8, -4.5, 0.5],
             'prev_strong_rivals': [3.0, 2.0, 4.0, 0.0]
         })
         
-        # ダミーモデルとエンコーダーの用意
         features = ['prev_rank', 'is_course_changed', 'true_reverse_gap', 'prev_strong_rivals']
         X_dummy = df_input[features].fillna(0)
         y_dummy = np.random.choice([0, 1], len(df_input))
@@ -83,7 +93,6 @@ with tab1:
         model = lgb.LGBMClassifier(random_state=42, verbose=-1)
         model.fit(X_dummy, y_dummy)
         
-        # --- 穴馬特化型 スコアリングロジック ---
         model_probs = model.predict_proba(X_dummy)[:, 1]
         
         odds_penalty = np.where(df_input['odds'] < 20.0, -100.0, 0.0)
@@ -100,7 +109,7 @@ with tab1:
         st.dataframe(df_sorted_res[['name', 'odds', 'prev_rank', 'is_course_changed', 'prev_strong_rivals', '穴馬期待度スコア']])
 
 with tab2:
-    st.subheader("マスターデータ状況")
+    st.subheader("マスターデータ状況 (`keiba_master_data_part2.csv`)")
     st.write(f"読込レコード数: {len(df_m_auto)}件")
     st.dataframe(df_m_auto.head(10))
 
@@ -110,9 +119,14 @@ with tab3:
     
     if st.button("穴馬専用モデルの学習を実行"):
         df_train = df_m_auto.copy()
-        is_top3 = pd.to_numeric(df_train['rank'], errors='coerce') <= 3
-        is_longshot = pd.to_numeric(df_train['odds'], errors='coerce') >= 20.0
-        df_train['target'] = (is_top3 & is_longshot).astype(int)
         
-        st.info(f"学習データ件数: {len(df_train)}, 穴馬正解データ数: {df_train['target'].sum()}件")
-        st.success("穴馬特化型モデルのチューニング準備が完了しました。")
+        # カラムの存在チェックを行い安全に再学習ターゲットを作成
+        if 'rank' in df_train.columns and 'odds' in df_train.columns:
+            is_top3 = pd.to_numeric(df_train['rank'], errors='coerce') <= 3
+            is_longshot = pd.to_numeric(df_train['odds'], errors='coerce') >= 20.0
+            df_train['target'] = (is_top3 & is_longshot).astype(int)
+            
+            st.info(f"学習データ件数: {len(df_train)}, 穴馬正解データ数: {df_train['target'].sum()}件")
+            st.success("穴馬特化型モデルのチューニング準備が完了しました。")
+        else:
+            st.error("マスターデータに 'rank' または 'odds' カラムが見つかりません。")
