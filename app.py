@@ -117,37 +117,52 @@ def check_high_level_race(df_races, target_race_id):
     if df_races.empty or 'race_id' not in df_races.columns or 'name' not in df_races.columns:
         return False, 0
 
-    competitors = df_races[df_races['race_id'] == target_race_id]['name'].unique()
+    # 対象レースに出走していた全馬の馬名リストを取得
+    target_race_rows = df_races[df_races['race_id'] == target_race_id]
+    if target_race_rows.empty:
+        return False, 0
+        
+    competitors = target_race_rows['name'].unique()
+    
+    # 対象レース自体の正確な日付（年・月・日）を1行目から取得
+    t_row = target_race_rows.iloc[0]
+    t_year = int(t_row.get('year', 0)) if pd.notna(t_row.get('year', 0)) else 0
+    t_month = int(t_row.get('month', 0)) if pd.notna(t_row.get('month', 0)) else 0
+    t_day = int(t_row.get('day', 0)) if pd.notna(t_row.get('day', 0)) else 0
+    
+    if t_year == 0 or t_month == 0 or t_day == 0:
+        return False, 0
+        
+    t_date_val = t_year * 10000 + t_month * 100 + t_day
     
     next_finish_orders = []
     
     for h_id in competitors:
+        # 該当馬の全履歴を取得
         h_history = df_races[df_races['name'] == h_id].copy()
-        if 'year' in h_history.columns and 'month' in h_history.columns and 'day' in h_history.columns:
-            h_history['date_val'] = h_history['year'].astype(str) + h_history['month'].astype(str).str.zfill(2) + h_history['day'].astype(str).str.zfill(2)
-            h_history = h_history.sort_values('date_val')
-        
-        target_rows = df_races[(df_races['race_id'] == target_race_id) & (df_races['name'] == h_id)]
-        if target_rows.empty:
+        if h_history.empty:
             continue
-        
-        # 該当レースの日付情報を取得
-        t_row = target_rows.iloc[0]
-        t_year = t_row.get('year', 0)
-        t_month = t_row.get('month', 0)
-        t_day = t_row.get('day', 0)
-        t_date_val = f"{t_year}{str(t_month).zfill(2)}{str(t_day).zfill(2)}"
+            
+        if 'year' in h_history.columns and 'month' in h_history.columns and 'day' in h_history.columns:
+            h_history['year_num'] = pd.to_numeric(h_history['year'], errors='coerce').fillna(0).astype(int)
+            h_history['month_num'] = pd.to_numeric(h_history['month'], errors='coerce').fillna(0).astype(int)
+            h_history['day_num'] = pd.to_numeric(h_history['day'], errors='coerce').fillna(0).astype(int)
+            h_history['date_val'] = h_history['year_num'] * 10000 + h_history['month_num'] * 100 + h_history['day_num']
+            
+            # 日付順、かつ同一日なら対象レースを後ろに、またはそのままソート
+            h_history = h_history.sort_values(['date_val', 'race_id'])
         
         if 'date_val' in h_history.columns:
+            # 対象レースの日付「より後」のレースを抽出
             subsequent_races = h_history[h_history['date_val'] > t_date_val]
         else:
-            subsequent_races = h_history.tail(1)
+            subsequent_races = pd.DataFrame()
         
         if not subsequent_races.empty:
             next_race = subsequent_races.iloc[0]
             next_finish_orders.append({
                 'name': h_id,
-                'next_finish_order': next_race.get('rank', 99)
+                'next_finish_order': int(pd.to_numeric(next_race.get('rank', 99), errors='coerce'))
             })
             
     df_next = pd.DataFrame(next_finish_orders)
@@ -467,7 +482,7 @@ with tab1:
                             if prev_track != p_track or prev_place != p_place:
                                 matched_hist['is_diff_course_or_track'] = True
 
-                            # 条件5: ご提示のアルゴリズムを用いた前走ハイレベル戦判定
+                            # 前走ハイレベル戦判定
                             if 'race_id' in last_row and pd.notna(last_row['race_id']):
                                 prev_r_id = last_row['race_id']
                                 _, top3_cnt = check_high_level_race(df_m_auto, prev_r_id)
