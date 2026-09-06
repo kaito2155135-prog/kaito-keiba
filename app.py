@@ -800,7 +800,7 @@ with tab1:
                 condition_tag += " 🔄【条件変わり】"
             if h_odds >= 20.0:
                 condition_tag += f" 🎯【単勝20倍超({h_odds}倍)・激走候補】"
-            if h_level_cnt >= 4:
+            if h_level_cnt >= 3:
                 condition_tag += f" 💎【前走ハイレベル戦(次走3着以内{h_level_cnt}頭)】"
             elif h_level_cnt > 0:
                 condition_tag += f" ✨【前走好走馬輩出(次走3着以内{h_level_cnt}頭)】"
