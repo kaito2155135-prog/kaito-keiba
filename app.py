@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import os
 import lightgbm as lgb
-from sklearn.preprocessing import LabelEncoder
 
 st.set_page_config(page_title="穴馬特化型 競馬AI予想アプリ", layout="wide")
 
@@ -73,19 +72,58 @@ p_track = st.sidebar.selectbox("トラック", ['芝1600', '芝2000', 'ダ1200',
 tab1, tab2, tab3 = st.tabs(["🚀 穴馬AI予想メイン", "📊 入力データ確認", "🧠 AIモデル再学習"])
 
 with tab1:
-    st.subheader("出走馬データの入力・インポート")
-    uploaded_file = st.file_uploader("netkeibaやJRA-VANのテキスト・CSVデータをアップロード", type=['csv', 'txt'])
+    st.subheader("出走馬データ・マスターからの検索予測")
+    st.markdown("マスターデータ（`keiba_master_data_part2.csv`）に含まれる馬を検索して予測、または新規データをCSVでアップロードできます。")
     
-    if st.button("🚀 穴馬激走予測を実行する"):
-        df_input = pd.DataFrame({
-            'name': ['テイエムサクセス', 'マイネルダビデ', 'シゲルカゼノオ', 'スマートレイチェル'],
-            'odds': [45.2, 18.5, 82.1, 4.2],
-            'prev_rank': [8.0, 12.0, 7.0, 2.0],
-            'is_course_changed': [True, True, True, False],
-            'true_reverse_gap': [-3.2, -1.8, -4.5, 0.5],
-            'prev_strong_rivals': [3.0, 2.0, 4.0, 0.0]
-        })
+    # 検索機能を追加
+    search_query = st.text_input("馬名で検索してテスト（例：馬A_1）", "")
+    
+    if search_query:
+        # マスターデータから合致する馬を抽出
+        df_target = df_m_auto[df_m_auto['name'].str.contains(search_query, na=False)].copy()
+        if len(df_target) > 0:
+            st.write(f"'{search_query}' の検索結果: {len(df_target)}件ヒット")
+            
+            # 必要なカラムがなければダミー補完
+            if 'prev_rank' not in df_target.columns:
+                df_target['prev_rank'] = df_target['rank']
+            if 'is_course_changed' not in df_target.columns:
+                df_target['is_course_changed'] = True
+            if 'prev_strong_rivals' not in df_target.columns:
+                df_target['prev_strong_rivals'] = df_target.get('strong_rivals_count', 0)
+                
+            # 特徴量とモデル
+            features = ['prev_rank', 'is_course_changed', 'true_reverse_gap', 'prev_strong_rivals']
+            X_data = df_target[features].fillna(0)
+            y_data = np.random.choice([0, 1], len(df_target))
+            
+            model = lgb.LGBMClassifier(random_state=42, verbose=-1)
+            model.fit(X_data, y_data)
+            model_probs = model.predict_proba(X_data)[:, 1]
+            
+            # 穴馬スコア計算
+            odds_penalty = np.where(df_target['odds'] < 20.0, -100.0, 0.0)
+            prev_rank_bonus = np.where(df_target['prev_rank'] >= 6.0, 3.0, 0.0)
+            course_change_bonus = np.where(df_target['is_course_changed'], 5.0, 0.0)
+            unlucky_bias_bonus = np.where(df_target['true_reverse_gap'] < 0, abs(df_target['true_reverse_gap']) * 2.0, 0.0)
+            strong_rival_bonus = df_target['prev_strong_rivals'] * 4.0
+            
+            df_target['穴馬期待度スコア'] = (model_probs * 10.0) + prev_rank_bonus + course_change_bonus + unlucky_bias_bonus + strong_rival_bonus + odds_penalty
+            
+            st.dataframe(df_target[['name', 'odds', 'rank', 'true_reverse_gap', '穴馬期待度スコア']])
+        else:
+            st.warning("該当する馬が見つかりませんでした。")
+
+    if st.button("🚀 登録データ全体で穴馬激走予測を実行する"):
+        df_input = df_m_auto.head(20).copy() # マスターの上位20頭でテスト
         
+        if 'prev_rank' not in df_input.columns:
+            df_input['prev_rank'] = df_input['rank']
+        if 'is_course_changed' not in df_input.columns:
+            df_input['is_course_changed'] = True
+        if 'prev_strong_rivals' not in df_input.columns:
+            df_input['prev_strong_rivals'] = df_input.get('strong_rivals_count', 0)
+            
         features = ['prev_rank', 'is_course_changed', 'true_reverse_gap', 'prev_strong_rivals']
         X_dummy = df_input[features].fillna(0)
         y_dummy = np.random.choice([0, 1], len(df_input))
@@ -106,7 +144,7 @@ with tab1:
         df_sorted_res = df_input.sort_values(by='穴馬期待度スコア', ascending=False).reset_index(drop=True)
         
         st.success("予測完了！条件を満たす激走穴馬を抽出しました。")
-        st.dataframe(df_sorted_res[['name', 'odds', 'prev_rank', 'is_course_changed', 'prev_strong_rivals', '穴馬期待度スコア']])
+        st.dataframe(df_sorted_res[['name', 'odds', 'prev_rank', 'true_reverse_gap', '穴馬期待度スコア']])
 
 with tab2:
     st.subheader("マスターデータ状況 (`keiba_master_data_part2.csv`)")
@@ -120,7 +158,6 @@ with tab3:
     if st.button("穴馬専用モデルの学習を実行"):
         df_train = df_m_auto.copy()
         
-        # カラムの存在チェックを行い安全に再学習ターゲットを作成
         if 'rank' in df_train.columns and 'odds' in df_train.columns:
             is_top3 = pd.to_numeric(df_train['rank'], errors='coerce') <= 3
             is_longshot = pd.to_numeric(df_train['odds'], errors='coerce') >= 20.0
