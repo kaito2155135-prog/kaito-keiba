@@ -156,7 +156,7 @@ def check_high_level_race(df_races, target_race_id):
         return False, 0
         
     top3_count = (df_next['next_finish_order'] <= 3).sum()
-    is_high_level = top3_count >= 4
+    is_high_level = top3_count >= 2
     
     return is_high_level, int(top3_count)
 
@@ -905,9 +905,9 @@ with tab3:
                     if col in df_train.columns:
                         df_train[col] = df_train[col].astype(str)
                 
-                existing_cat_cols = [c for c in cat_cols if c in df_train.columns]
-                if existing_cat_cols:
-                    df_train[existing_cat_cols] = encoder.fit_transform(df_train[existing_cat_cols])
+                header_cat_cols = [c for c in cat_cols if c in df_train.columns]
+                if header_cat_cols:
+                    df_train[header_cat_cols] = encoder.fit_transform(df_train[header_cat_cols])
 
                 features = ['odds', 'popularity', 'weight', 'age', 'waku', 'umaban', 'distance', 'jockey_win_rate', 'place', 'track', 'condition', 'sire', 'blinker', 'corner_1st', 'corner_4th', 'true_reverse_gap', 'race_class', 'time_sec', 'last_3f']
                 for f in features:
