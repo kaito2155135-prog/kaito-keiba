@@ -108,6 +108,58 @@ def parse_time_to_sec(val):
         pass
     return 0.0
 
+def check_high_level_race(df_races, target_race_id):
+    """
+    df_races: 全レース結果のマスターデータ
+              (カラム例: ['race_id', 'year', 'month', 'day', 'name', 'rank'])
+    target_race_id: 判定したい対象レース（前走）のID
+    """
+    if df_races.empty or 'race_id' not in df_races.columns or 'name' not in df_races.columns:
+        return False, 0
+
+    competitors = df_races[df_races['race_id'] == target_race_id]['name'].unique()
+    
+    next_finish_orders = []
+    
+    for h_id in competitors:
+        h_history = df_races[df_races['name'] == h_id].copy()
+        if 'year' in h_history.columns and 'month' in h_history.columns and 'day' in h_history.columns:
+            h_history['date_val'] = h_history['year'].astype(str) + h_history['month'].astype(str).str.zfill(2) + h_history['day'].astype(str).str.zfill(2)
+            h_history = h_history.sort_values('date_val')
+        
+        target_rows = df_races[(df_races['race_id'] == target_race_id) & (df_races['name'] == h_id)]
+        if target_rows.empty:
+            continue
+        
+        # 該当レースの日付情報を取得
+        t_row = target_rows.iloc[0]
+        t_year = t_row.get('year', 0)
+        t_month = t_row.get('month', 0)
+        t_day = t_row.get('day', 0)
+        t_date_val = f"{t_year}{str(t_month).zfill(2)}{str(t_day).zfill(2)}"
+        
+        if 'date_val' in h_history.columns:
+            subsequent_races = h_history[h_history['date_val'] > t_date_val]
+        else:
+            subsequent_races = h_history.tail(1)
+        
+        if not subsequent_races.empty:
+            next_race = subsequent_races.iloc[0]
+            next_finish_orders.append({
+                'name': h_id,
+                'next_finish_order': next_race.get('rank', 99)
+            })
+            
+    df_next = pd.DataFrame(next_finish_orders)
+    
+    if df_next.empty:
+        return False, 0
+        
+    top3_count = (df_next['next_finish_order'] <= 3).sum()
+    is_high_level = top3_count >= 4
+    
+    return is_high_level, int(top3_count)
+
 @st.cache_data
 def load_master_data():
     filename = 'keiba_master_data_part2.csv'
@@ -400,7 +452,6 @@ with tab1:
                             has_turf = h_group['track'].astype(str).str.contains('芝', regex=True).any()
                             race_cnt = len(h_group)
 
-                            # 直近（前走）の情報を詳細に取得
                             last_row = h_group.iloc[-1]
                             prev_rank = int(last_row.get('rank', 5)) if pd.notna(last_row.get('rank', 5)) else 5
                             prev_track = str(last_row.get('track', '芝'))
@@ -410,19 +461,17 @@ with tab1:
                             matched_hist['prev_track'] = prev_track
                             matched_hist['prev_place'] = prev_place
 
-                            # 条件1: 前走6着以下か？
                             if prev_rank >= 6:
                                 matched_hist['is_prev_bad_rank'] = True
 
-                            # 条件2: 前走と今回のレースの開催場所・条件変わり（トラック種別などが違う）
                             if prev_track != p_track or prev_place != p_place:
                                 matched_hist['is_diff_course_or_track'] = True
 
-                            # 条件5: 前走で対戦したメンバーが他のレースで好走しているか（同レース組の成績を集計）
-                            if 'race_id' in last_row and 'race_id' in sub_df_m.columns:
-                                r_id = last_row['race_id']
-                                same_race_horses = sub_df_m[sub_df_m['race_id'] == r_id]
-                                matched_hist['prev_race_high_level_score'] = len(same_race_horses[same_race_horses['rank'] <= 3])
+                            # 条件5: ご提示のアルゴリズムを用いた前走ハイレベル戦判定
+                            if 'race_id' in last_row and pd.notna(last_row['race_id']):
+                                prev_r_id = last_row['race_id']
+                                _, top3_cnt = check_high_level_race(df_m_auto, prev_r_id)
+                                matched_hist['prev_race_high_level_score'] = top3_cnt
 
                             if 'condition' in h_group.columns and 'rank' in h_group.columns:
                                 heavy_cond_rows = h_group[h_group['condition'].astype(str).str.contains('重|不良|不', regex=True)]
@@ -568,7 +617,6 @@ with tab1:
         df_input['corner_4th'] = pd.to_numeric(df_input['corner_4th'], errors='coerce').fillna(7.0)
         df_input['true_reverse_gap'] = pd.to_numeric(df_input['true_reverse_gap'], errors='coerce').fillna(0.0)
 
-        # ご提示いただいた6つの穴馬条件に基づくボーナス項目の計算
         is_prev_bad = df_input['is_prev_bad_rank'].fillna(False)
         prev_bad_bonus = np.where(is_prev_bad, 3.5, 0.0)
 
@@ -639,7 +687,6 @@ with tab1:
                     heavy_win_cnt * 1.0   
                 )
 
-                # 総合スコア（AI予測値に、ご提示の6条件ボーナスを大きく反映）
                 score = (model_probs * 2.5 + rank_score + l3f_bonus + reverse_bonus + promo_penalty + dirt_penalty + turf_penalty + heavy_track_bonus + prev_bad_bonus + diff_course_bonus + longshot_bonus + high_level_bonus + blood_bonus + df_input['jockey_win_rate'] * 2.0 + (1.0 / np.log1p(df_input['odds'])) * 1.5) * heavy_track_global_bonus
             except Exception as e:
                 rank_score = (15.0 - df_input['past_avg_rank']).clip(lower=-10.0) * 4.0
@@ -742,7 +789,6 @@ with tab1:
             is_f_blinker = row.get('is_first_blinker', False)
             h_wins_cnt = row.get('heavy_track_wins_count', 0)
 
-            # ご提示いただいた穴馬条件の判定フラグ
             p_bad = row.get('is_prev_bad_rank', False)
             d_course = row.get('is_diff_course_or_track', False)
             h_level_cnt = row.get('prev_race_high_level_score', 0)
@@ -754,8 +800,10 @@ with tab1:
                 condition_tag += " 🔄【条件変わり】"
             if h_odds >= 20.0:
                 condition_tag += f" 🎯【単勝20倍超({h_odds}倍)・激走候補】"
-            if h_level_cnt >= 2:
-                condition_tag += f" 💎【前走ハイレベル戦(好走馬{h_level_cnt}頭)】"
+            if h_level_cnt >= 4:
+                condition_tag += f" 💎【前走ハイレベル戦(次走3着以内{h_level_cnt}頭)】"
+            elif h_level_cnt > 0:
+                condition_tag += f" ✨【前走好走馬輩出(次走3着以内{h_level_cnt}頭)】"
             if is_promo:
                 condition_tag += f" ⚡️【昇級初戦 (前走:{prev_c})】"
             if is_dirt:
