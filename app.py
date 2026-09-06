@@ -561,11 +561,11 @@ with tab1:
         input_data_list = []
 
     if len(input_data_list) == 0:
-        st.warning("⚠️ テキスト解析できなかったため、一括シンプル抽出モード（またはデフォルト8頭）に切り替えます。以下のテキストエリアに『馬名』だけでも改行区切りで入れてみてください！")
+        st.warning("⚠️ テキスト解析できなかったため、一括シンプル抽出モード（またはデフォルト2頭）に切り替えます。以下のテキストエリアに『馬名』だけでも改行区切りで入れてみてください！")
         
         if raw_text.strip():
             lines = [l.strip() for l in raw_text.strip().splitlines() if l.strip()]
-            for idx, l in enumerate(lines[:18]):
+            for idx, l in enumerate(lines[:2]):
                 clean_l = clean_str(l)
                 if len(clean_l) >= 2 and not clean_l.isdigit():
                     input_data_list.append({
@@ -584,7 +584,7 @@ with tab1:
 
         if len(input_data_list) == 0:
             np.random.seed(42)
-            for i in range(8):
+            for i in range(2):
                 input_data_list.append({
                     'place': p_place, 'track': p_track, 'distance': p_distance, 'condition': p_condition,
                     'race_class': p_class, 'waku': 1, 'umaban': i+1, 'name': f"馬番{i+1}", 'sex': '牡', 'age': 4, 'sire': '不明',
@@ -840,7 +840,7 @@ with tab2:
     with col_r3:
         condition = st.selectbox("馬場状態", ["良", "稍重", "重", "不良"], key="r_cond")
 
-    res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=8, key="res_num")
+    res_num_horses = st.slider("出走頭数", min_value=1, max_value=18, value=2, key="res_num")
     new_data_list = []
     for i in range(res_num_horses):
         u_num = i + 1
